@@ -6,6 +6,12 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+console.log('=== DEBUG ENV LOADING ===');
+console.log('Current working directory:', process.cwd());
+console.log('FAL_KEY from env:', process.env.FAL_KEY);
+console.log('FAL_KEY length:', process.env.FAL_KEY?.length);
+console.log('=========================');
+
 const app = express();
 const port = process.env.PORT || 3001;
 
@@ -32,63 +38,76 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
   try {
     console.log('Received image generation request');
     
-    // Check if image was uploaded
     if (!req.file) {
       return res.status(400).json({ error: 'No image provided' });
     }
 
-    // Check if FAL_KEY is configured
     if (!process.env.FAL_KEY) {
       return res.status(500).json({ error: 'FAL_KEY not configured' });
     }
 
-    console.log('Processing image with Fal AI...');
-    
-    // Convert buffer to base64
+    // First, upload the image to get a URL
     const imageBase64 = req.file.buffer.toString('base64');
-    const imageDataUrl = `data:${req.file.mimetype};base64,${imageBase64}`;
+    const imageDataUrl = `data:image/jpeg;base64,${imageBase64}`;
     
-    // Prepare the request to Fal AI
-    const falRequest = {
-      prompt: "Transform this portrait into a beautiful Studio Ghibli anime style artwork. Keep the person's facial features recognizable but apply the distinctive Ghibli animation art style with soft colors, gentle lighting, and magical atmosphere. Make it look like a character from a Studio Ghibli movie.",
-      image_url: imageDataUrl,
-      num_inference_steps: 28,
-      guidance_scale: 3.5,
-      strength: 0.85,
-      safety_tolerance: 2,
-      format: "jpeg"
-    };
-
-    // Make request to Fal AI
-    const falResponse = await axios.post(
-      'https://fal.run/fal-ai/flux-pro',
-      falRequest,
+    // Submit job to queue
+    const queueResponse = await axios.post(
+      'https://queue.fal.run/fal-ai/flux-pro/kontext/max',
+      {
+        prompt: "Transform this portrait into a beautiful Studio Ghibli anime style artwork. Keep the person's facial features recognizable but apply the distinctive Ghibli animation art style with soft colors, gentle lighting, and magical atmosphere.",
+        image_url: imageDataUrl
+      },
       {
         headers: {
           'Authorization': `Key ${process.env.FAL_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 120000 // 2 minutes timeout
+          'Content-Type': 'application/json'
+        }
       }
     );
 
-    console.log('Fal AI response received');
+    const requestId = queueResponse.data.request_id;
+    console.log('Job submitted, request ID:', requestId);
 
-    // Extract the generated image URL
-    const generatedImageUrl = falResponse.data.images[0].url;
+    // Poll for result
+    let result = null;
+    const maxAttempts = 60; // 5 minutes max
+    const pollInterval = 5000; // 5 seconds
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      
+      const statusResponse = await axios.get(
+        `https://queue.fal.run/fal-ai/flux-pro/kontext/max/requests/${requestId}/status`,
+        {
+          headers: {
+            'Authorization': `Key ${process.env.FAL_KEY}`
+          }
+        }
+      );
+
+      if (statusResponse.data.status === 'completed') {
+        result = statusResponse.data.result;
+        break;
+      } else if (statusResponse.data.status === 'failed') {
+        throw new Error('AI processing failed');
+      }
+    }
+
+    if (!result) {
+      throw new Error('Processing timeout');
+    }
+
+    // Get the generated image URL
+    const generatedImageUrl = result.images[0].url;
     
-    // Download the generated image
+    // Download and convert to base64
     const imageResponse = await axios.get(generatedImageUrl, {
       responseType: 'arraybuffer'
     });
     
-    // Convert to base64
     const generatedImageBase64 = Buffer.from(imageResponse.data).toString('base64');
     const generatedImageDataUrl = `data:image/jpeg;base64,${generatedImageBase64}`;
     
-    console.log('Image processing completed successfully');
-    
-    // Return the generated image
     res.json({
       success: true,
       ghibliImage: generatedImageDataUrl,
@@ -97,30 +116,10 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
 
   } catch (error) {
     console.error('Error processing image:', error);
-    
-    // Handle different types of errors
-    if (error.response) {
-      // Fal AI API error
-      console.error('Fal AI API error:', error.response.data);
-      res.status(500).json({
-        error: 'Failed to process image with AI service',
-        details: error.response.data.detail || 'Unknown AI service error'
-      });
-    } else if (error.request) {
-      // Network error
-      console.error('Network error:', error.message);
-      res.status(500).json({
-        error: 'Network error while processing image',
-        details: 'Unable to connect to AI service'
-      });
-    } else {
-      // Other errors
-      console.error('Processing error:', error.message);
-      res.status(500).json({
-        error: 'Internal server error',
-        details: error.message
-      });
-    }
+    res.status(500).json({
+      error: 'Failed to process image',
+      details: error.message
+    });
   }
 });
 
@@ -138,4 +137,7 @@ app.listen(port, () => {
   console.log(`Ghibli Portrait Backend running on port ${port}`);
   console.log(`Health check: http://localhost:${port}/health`);
   console.log(`FAL_KEY configured: ${process.env.FAL_KEY ? 'Yes' : 'No'}`);
+  if (process.env.FAL_KEY) {
+    console.log(`Using FAL_KEY starting with: ${process.env.FAL_KEY.substring(0, 5)}...`);
+  }
 });
