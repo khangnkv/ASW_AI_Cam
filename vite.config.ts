@@ -10,7 +10,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: process.env.NODE_ENV === 'production' ? 'http://backend:3001' : 'http://localhost:3001',
         changeOrigin: true,
         secure: false,
       },

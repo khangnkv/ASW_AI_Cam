@@ -209,7 +209,8 @@ function App() {
       formData.append('image', blob, 'portrait.jpg');
       
       // Send to backend
-      const result = await fetch('/api/generate', {
+      const apiUrl = import.meta.env.PROD ? '/api/generate' : 'http://localhost:3001/api/generate';
+      const result = await fetch(apiUrl, {
         method: 'POST',
         body: formData
       });
