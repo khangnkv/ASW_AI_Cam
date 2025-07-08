@@ -108,9 +108,10 @@ app.use((error, req, res, next) => {
 });
 
 // Start server
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`Ghibli Portrait Backend running on port ${port}`);
-  console.log(`Health check: http://localhost:${port}/health`);
+  console.log(`Local: http://localhost:${port}/health`);
+  console.log(`Network: http://0.0.0.0:${port}/health`);
   console.log(`FAL_KEY configured: ${process.env.FAL_KEY ? 'Yes' : 'No'}`);
   if (process.env.FAL_KEY) {
     console.log(`Using FAL_KEY starting with: ${process.env.FAL_KEY.substring(0, 5)}...`);
