@@ -1,14 +1,15 @@
 services:
   backend:
-    build: ./backend
-    ports:
-      - "3001:3001"
+    image: ghibli-backend:latest
+    container_name: ghibli-backend-prod
+    restart: always
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - PORT=3001
     env_file:
-      - ./backend/.env
-    restart: unless-stopped
+      - .env.production
+    expose:
+      - "3001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 30s
@@ -17,16 +18,14 @@ services:
       start_period: 20s
 
   frontend:
-    build: .
-    ports:
-      - "3000:80"
+    image: ghibli-frontend:latest
+    container_name: ghibli-frontend-prod
+    restart: always
     depends_on:
       backend:
         condition: service_healthy
-    environment:
-      - NODE_ENV=development
-      - VITE_API_URL=http://localhost:3001
-    restart: unless-stopped
+    expose:
+      - "80"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost"]
       interval: 30s
@@ -36,16 +35,19 @@ services:
 
   nginx:
     image: nginx:alpine
+    container_name: ghibli-nginx-prod
+    restart: always
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       frontend:
         condition: service_healthy
       backend:
         condition: service_healthy
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
