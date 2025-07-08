@@ -539,22 +539,14 @@ function App() {
               <p className="text-lg text-gray-600">Beautiful transformation complete!</p>
             </div>
             
-            <div className="grid md:grid-cols-2 gap-8">
+            {/* Single centered Ghibli image */}
+            <div className="max-w-2xl mx-auto">
               <div className="space-y-4">
-                <h3 className="text-xl font-semibold text-gray-800 text-center">Original</h3>
-                <img
-                  src={result.originalImage}
-                  alt="Original portrait"
-                  className="w-full h-auto rounded-2xl shadow-xl"
-                />
-              </div>
-              
-              <div className="space-y-4">
-                <h3 className="text-xl font-semibold text-gray-800 text-center">Ghibli Style</h3>
+                <h3 className="text-2xl font-semibold text-gray-800 text-center">Your Magical Transformation</h3>
                 <img
                   src={result.ghibliImage}
                   alt="Ghibli-style portrait"
-                  className="w-full h-auto rounded-2xl shadow-xl"
+                  className="w-full h-auto rounded-2xl shadow-2xl"
                 />
               </div>
             </div>
