@@ -25,23 +25,20 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Copy custom nginx configuration
 COPY nginx-frontend.conf /etc/nginx/conf.d/default.conf
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 -G nodejs
+# Create non-root user and setup permissions
+RUN addgroup -g 101 -S nginx && \
+    adduser -S nginx -u 101 -G nginx
 
 # Change ownership of nginx directories
-RUN chown -R nodejs:nodejs /var/cache/nginx && \
-    chown -R nodejs:nodejs /var/log/nginx && \
-    chown -R nodejs:nodejs /etc/nginx/conf.d && \
-    chown -R nodejs:nodejs /usr/share/nginx/html && \
+RUN chown -R nginx:nginx /var/cache/nginx && \
+    chown -R nginx:nginx /var/log/nginx && \
+    chown -R nginx:nginx /etc/nginx/conf.d && \
+    chown -R nginx:nginx /usr/share/nginx/html && \
     touch /var/run/nginx.pid && \
-    chown -R nodejs:nodejs /var/run/nginx.pid
+    chown -R nginx:nginx /var/run/nginx.pid
 
 # Switch to non-root user
-USER nodejs
-
-# Install serve to serve static files
-# RUN npm install -g serve (not needed with nginx)
+USER nginx
 
 # Expose port
 EXPOSE 8080
