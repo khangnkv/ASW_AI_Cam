@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ghibli-backend:latest
+    build: ./backend
     container_name: ghibli-backend-prod
     restart: always
     environment:
@@ -18,7 +18,7 @@ services:
       start_period: 20s
 
   frontend:
-    image: ghibli-frontend:latest
+    build: .
     container_name: ghibli-frontend-prod
     restart: always
     depends_on:
@@ -39,10 +39,8 @@ services:
     restart: always
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       frontend:
         condition: service_healthy
