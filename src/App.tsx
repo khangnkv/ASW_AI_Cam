@@ -209,24 +209,10 @@ function App() {
       formData.append('image', blob, 'portrait.jpg');
       
       // Send to backend
-      // For Netlify deployment, always use the Netlify function
-      const apiUrl = '/.netlify/functions/generate';
-      
-      // Convert blob to base64 for Netlify function
-      const reader = new FileReader();
-      const imageBase64 = await new Promise((resolve) => {
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(blob);
-      });
-      
+      const apiUrl = '/api/generate';
       const result = await fetch(apiUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          image: imageBase64
-        })
+        body: formData
       });
       
       if (!result.ok) {

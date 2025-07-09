@@ -1,0 +1,63 @@
+# Multi-stage build optimized for Railway
+FROM node:18-alpine AS backend-builder
+
+# Set working directory for backend
+WORKDIR /app/backend
+
+# Copy backend package files
+COPY backend/package*.json ./
+
+# Install backend dependencies
+RUN npm ci --only=production
+
+# Copy backend source
+COPY backend/ ./
+
+# Frontend build stage
+FROM node:18-alpine AS frontend-builder
+
+# Set working directory for frontend
+WORKDIR /app
+
+# Copy frontend package files
+COPY package*.json ./
+
+# Install frontend dependencies
+RUN npm ci
+
+# Copy frontend source
+COPY . .
+
+# Build the frontend
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Create app directory
+WORKDIR /app
+
+# Copy backend from backend-builder
+COPY --from=backend-builder /app/backend ./backend
+
+# Copy built frontend from frontend-builder
+COPY --from=frontend-builder /app/dist ./frontend/dist
+
+# Create a simple server that serves both frontend and backend
+COPY railway-server.js ./
+
+# Install express for the combined server
+RUN cd backend && npm install
+
+# Expose the port that Railway expects
+EXPOSE $PORT
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:$PORT/health || exit 1
+
+# Start the combined server
+CMD ["node", "railway-server.js"]
