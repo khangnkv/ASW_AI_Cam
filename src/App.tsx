@@ -209,10 +209,24 @@ function App() {
       formData.append('image', blob, 'portrait.jpg');
       
       // Send to backend
-      const apiUrl = import.meta.env.PROD ? '/api/generate' : 'http://localhost:3001/api/generate';
+      // For Netlify deployment, always use the Netlify function
+      const apiUrl = '/.netlify/functions/generate';
+      
+      // Convert blob to base64 for Netlify function
+      const reader = new FileReader();
+      const imageBase64 = await new Promise((resolve) => {
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+      
       const result = await fetch(apiUrl, {
         method: 'POST',
-        body: formData
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          image: imageBase64
+        })
       });
       
       if (!result.ok) {
