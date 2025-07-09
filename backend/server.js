@@ -4,7 +4,7 @@ const multer = require('multer');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const fal = require("@fal-ai/serverless-client");
+const { fal } = require("@fal-ai/client");  // ← CHANGED
 require('dotenv').config();
 
 console.log('=== DEBUG ENV LOADING ===');
