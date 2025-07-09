@@ -9,7 +9,7 @@ An AI-powered web application that transforms your portrait photos into beautifu
 - **Beautiful UI**: Responsive, mobile-first design with Ghibli-inspired aesthetics
 - **Instant Results**: View and download your transformed portrait
 - **Cross-Platform**: Works on desktop, tablet, and mobile devices
-- **Docker Support**: Easy deployment with Docker containers
+- **Railway Ready**: Optimized for single-service deployment on Railway
 
 ## Tech Stack
 
@@ -19,7 +19,6 @@ An AI-powered web application that transforms your portrait photos into beautifu
 - Tailwind CSS for styling
 - Lucide React for icons
 - WebRTC for camera access
-- Nginx for production serving
 
 ### Backend
 - Node.js with Express
@@ -28,6 +27,9 @@ An AI-powered web application that transforms your portrait photos into beautifu
 - Fal-AI Flux Pro integration
 
 ### Infrastructure
+- **Railway Deployment**: Single-service architecture optimized for Railway
+- **Docker Support**: Multi-stage builds for efficient deployments
+- **Local Development**: Docker Compose for multi-service local development
 - Docker & Docker Compose
 - Nginx reverse proxy
 - Health checks and monitoring
