@@ -1,3 +1,4 @@
+
 services:
   backend:
     build: ./backend
@@ -23,7 +24,7 @@ services:
     restart: always
     depends_on:
       backend:
-        condition: service_healthy
+        condition: service_healthy  # Wait for backend to be healthy
     expose:
       - "80"
     healthcheck:
@@ -43,12 +44,16 @@ services:
       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       frontend:
-        condition: service_healthy
+        condition: service_healthy  # Wait for frontend to be healthy
       backend:
-        condition: service_healthy
+        condition: service_healthy  # Wait for backend to be healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 25s
+
+networks:
+  default:
+    driver: bridge
