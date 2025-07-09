@@ -6,12 +6,18 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY postcss.config.js ./
+COPY tailwind.config.js ./
+COPY tsconfig*.json ./
+COPY vite.config.ts ./
 
 # Install dependencies
 RUN npm ci
 
-# Copy source code
-COPY . .
+# Copy source code (excluding .env files that might conflict)
+COPY src/ ./src/
+COPY index.html ./
+COPY eslint.config.js ./
 
 # Build the frontend
 RUN npm run build
@@ -22,8 +28,10 @@ FROM node:18-alpine AS production
 # Set working directory
 WORKDIR /app
 
-# Install production dependencies only
+# Copy package files
 COPY package*.json ./
+
+# Install production dependencies only
 RUN npm ci --only=production
 
 # Copy the built frontend from builder stage
@@ -31,9 +39,6 @@ COPY --from=frontend-builder /app/dist ./dist
 
 # Copy the railway server file
 COPY railway-server.js ./
-
-# Copy environment files (optional)
-COPY .env* ./
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs
