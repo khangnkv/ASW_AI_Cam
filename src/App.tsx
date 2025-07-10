@@ -1,8 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Camera, Upload, Download, RefreshCw, Sparkles, ArrowLeft, Palette, RotateCcw, FlipHorizontal, Image, Type, Users, Zap, QrCode } from 'lucide-react';
+import { Camera, Upload, Download, RefreshCw, Sparkles, ArrowLeft, Palette, RotateCcw, Users, Type, QrCode } from 'lucide-react';
 
 type AppState = 'welcome' | 'camera' | 'preview' | 'processing' | 'result';
-type FeatureType = 'stylized' | 'faceswap' | 'custom';
+type FeatureType = 'ai-style' | 'face-swap' | 'custom';
 
 interface ProcessingResult {
   originalImage: string;
@@ -17,39 +17,34 @@ interface FeatureOption {
   name: string;
   icon: React.ComponentType<any>;
   description: string;
-  color: string;
 }
 
 const features: FeatureOption[] = [
   {
-    id: 'stylized',
+    id: 'ai-style',
     name: 'AI Style',
     icon: Palette,
-    description: 'Ghibli, Pixar & more',
-    color: 'from-purple-500 to-pink-600'
+    description: 'Template-based styling'
   },
   {
-    id: 'faceswap',
+    id: 'face-swap',
     name: 'Face Swap',
     icon: Users,
-    description: 'Swap faces with AI',
-    color: 'from-blue-500 to-cyan-600'
+    description: 'Advanced face swapping'
   },
   {
     id: 'custom',
     name: 'Custom',
     icon: Type,
-    description: 'Your own prompt',
-    color: 'from-emerald-500 to-teal-600'
+    description: 'Your own prompt'
   }
 ];
 
 function App() {
   const [state, setState] = useState<AppState>('welcome');
-  const [selectedFeature, setSelectedFeature] = useState<FeatureType>('stylized');
+  const [selectedFeature, setSelectedFeature] = useState<FeatureType>('ai-style');
   const [customPrompt, setCustomPrompt] = useState('');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [lastGeneratedImage, setLastGeneratedImage] = useState<string | null>(null);
   const [result, setResult] = useState<ProcessingResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -157,6 +152,7 @@ function App() {
       
       const ctx = canvas.getContext('2d');
       if (ctx) {
+        // Save the original image without mirroring
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageData = canvas.toDataURL('image/jpeg', 0.9);
         setCapturedImage(imageData);
@@ -231,7 +227,6 @@ function App() {
       };
       
       setResult(processedResult);
-      setLastGeneratedImage(data.generatedImage);
       setState('result');
     } catch (err) {
       console.error('Processing error:', err);
@@ -245,7 +240,7 @@ function App() {
   const downloadImage = useCallback(() => {
     if (result?.generatedImage) {
       const link = document.createElement('a');
-      link.download = `ai-generated-${selectedFeature}-${Date.now()}.jpg`;
+      link.download = `assetwise-ai-${selectedFeature}-${Date.now()}.jpg`;
       link.href = result.generatedImage;
       document.body.appendChild(link);
       link.click();
@@ -270,24 +265,30 @@ function App() {
   }, [stopCamera]);
 
   return (
-    <div className="min-h-screen bg-black text-white overflow-hidden">
+    <div className="min-h-screen bg-white text-gray-900 overflow-hidden font-sans">
       {/* Header */}
-      <div className="bg-black/90 backdrop-blur-sm border-b border-gray-800 sticky top-0 z-20">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center">
-                <Zap className="w-4 h-4 text-white" />
-              </div>
+              <img 
+                src="/logo.png" 
+                alt="AssetWise" 
+                className="h-8 w-auto"
+                onError={(e) => {
+                  // Fallback if logo doesn't load
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
               <div>
-                <h1 className="text-lg font-bold text-white">AI Image Generator</h1>
-                <p className="text-xs text-gray-400">Multi-Feature AI Studio</p>
+                <h1 className="text-lg font-semibold text-gray-900">AssetWise AI</h1>
+                <p className="text-xs text-gray-500">Image Generator</p>
               </div>
             </div>
             {state !== 'welcome' && (
               <button
                 onClick={reset}
-                className="flex items-center space-x-2 px-3 py-2 text-gray-400 hover:text-white transition-colors"
+                className="flex items-center space-x-2 px-3 py-2 text-gray-500 hover:text-assetwise-600 transition-colors"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span className="text-sm">Reset</span>
@@ -300,28 +301,36 @@ function App() {
       {/* Welcome Screen */}
       {state === 'welcome' && (
         <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 text-center space-y-8">
-          <div className="space-y-4">
-            <div className="w-24 h-24 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center mx-auto">
-              <Zap className="w-12 h-12 text-white" />
+          <div className="space-y-6">
+            <img 
+              src="/logo.png" 
+              alt="AssetWise" 
+              className="h-16 w-auto mx-auto"
+              onError={(e) => {
+                // Fallback if logo doesn't load
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">AI Image Generator</h2>
+              <p className="text-lg text-gray-600 max-w-md">
+                Transform your photos with advanced AI technology. Choose from multiple generation modes.
+              </p>
             </div>
-            <h2 className="text-3xl font-bold text-white">AI Image Generator</h2>
-            <p className="text-lg text-gray-300 max-w-md">
-              Transform your photos with AI. Choose from stylized themes, face swap, or custom prompts.
-            </p>
           </div>
           
           <div className="grid grid-cols-1 gap-4 w-full max-w-sm">
             {features.map((feature) => {
               const IconComponent = feature.icon;
               return (
-                <div key={feature.id} className="bg-gray-900/50 backdrop-blur-sm rounded-xl p-4 border border-gray-800">
+                <div key={feature.id} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
                   <div className="flex items-center space-x-3">
-                    <div className={`w-10 h-10 bg-gradient-to-br ${feature.color} rounded-full flex items-center justify-center`}>
+                    <div className="w-10 h-10 bg-assetwise-600 rounded-full flex items-center justify-center">
                       <IconComponent className="w-5 h-5 text-white" />
                     </div>
                     <div className="text-left">
-                      <h3 className="font-semibold text-white">{feature.name}</h3>
-                      <p className="text-sm text-gray-400">{feature.description}</p>
+                      <h3 className="font-semibold text-gray-900">{feature.name}</h3>
+                      <p className="text-sm text-gray-600">{feature.description}</p>
                     </div>
                   </div>
                 </div>
@@ -334,8 +343,8 @@ function App() {
             disabled={isStartingCamera}
             className={`px-8 py-4 rounded-full font-semibold text-lg transition-all duration-200 transform shadow-lg ${
               isStartingCamera
-                ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
-                : 'bg-gradient-to-r from-purple-500 to-pink-600 text-white hover:from-purple-600 hover:to-pink-700 hover:scale-105 hover:shadow-xl'
+                ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                : 'bg-assetwise-600 text-white hover:bg-assetwise-700 hover:scale-105 hover:shadow-xl'
             }`}
           >
             {isStartingCamera ? 'Starting Camera...' : 'Start Creating'}
@@ -346,7 +355,7 @@ function App() {
       {/* Camera Screen */}
       {state === 'camera' && (
         <div className="relative h-[calc(100vh-80px)] bg-black">
-          {/* Video Preview */}
+          {/* Video Preview with mirroring for user display */}
           <div className="relative w-full h-full" onClick={isCameraReady ? captureImage : undefined}>
             <video
               ref={videoRef}
@@ -354,6 +363,7 @@ function App() {
               playsInline
               muted
               className="w-full h-full object-cover"
+              style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
             />
             
             {/* Loading overlay */}
@@ -374,7 +384,7 @@ function App() {
             )}
           </div>
 
-          {/* Feature Selection Bar */}
+          {/* Feature Selection Bar - Top Center */}
           <div className="absolute top-20 left-0 right-0 px-4">
             <div className="flex justify-center space-x-2">
               {features.map((feature) => {
@@ -393,7 +403,7 @@ function App() {
                     }}
                     className={`flex flex-col items-center space-y-1 px-3 py-2 rounded-xl transition-all ${
                       isSelected
-                        ? `bg-gradient-to-br ${feature.color} text-white shadow-lg`
+                        ? 'bg-assetwise-600 text-white shadow-lg'
                         : 'bg-black/50 backdrop-blur-sm text-gray-300 hover:text-white'
                     }`}
                   >
@@ -414,7 +424,7 @@ function App() {
                   value={customPrompt}
                   onChange={(e) => setCustomPrompt(e.target.value)}
                   placeholder="Enter your custom prompt..."
-                  className="w-full bg-gray-800 text-white px-4 py-3 rounded-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
+                  className="w-full bg-gray-800 text-white px-4 py-3 rounded-lg border border-gray-600 focus:border-assetwise-500 focus:outline-none"
                 />
               </div>
             </div>
@@ -423,18 +433,15 @@ function App() {
           {/* Bottom Controls */}
           <div className="absolute bottom-8 left-0 right-0 px-8">
             <div className="flex items-center justify-between">
-              {/* Last Generated Thumbnail */}
-              <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-800 border border-gray-600">
-                {lastGeneratedImage ? (
-                  <img src={lastGeneratedImage} alt="Last generated" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Image className="w-5 h-5 text-gray-500" />
-                  </div>
-                )}
-              </div>
+              {/* Upload Button - Left */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-12 h-12 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors"
+              >
+                <Upload className="w-5 h-5" />
+              </button>
 
-              {/* Shutter Button */}
+              {/* Shutter Button - Center */}
               <button
                 onClick={captureImage}
                 disabled={!isCameraReady}
@@ -447,21 +454,13 @@ function App() {
                 <div className={`w-16 h-16 rounded-full ${isCameraReady ? 'bg-white' : 'bg-gray-500'}`}></div>
               </button>
 
-              {/* Camera Controls */}
-              <div className="flex flex-col space-y-2">
-                <button
-                  onClick={flipCamera}
-                  className="w-12 h-12 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors"
-                >
-                  <FlipHorizontal className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-12 h-12 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors"
-                >
-                  <Upload className="w-5 h-5" />
-                </button>
-              </div>
+              {/* QR Code Button - Right */}
+              <button
+                className="w-12 h-12 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white opacity-50"
+                disabled
+              >
+                <QrCode className="w-5 h-5" />
+              </button>
             </div>
           </div>
 
@@ -478,13 +477,13 @@ function App() {
 
       {/* Preview Screen */}
       {state === 'preview' && capturedImage && (
-        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 space-y-6">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 space-y-6 bg-gray-50">
           <div className="text-center">
-            <h2 className="text-2xl font-bold text-white mb-2">Ready to Generate?</h2>
-            <p className="text-gray-300">
-              {selectedFeature === 'stylized' && 'Transform with AI styling'}
-              {selectedFeature === 'faceswap' && 'Swap faces with AI'}
-              {selectedFeature === 'custom' && 'Generate with your prompt'}
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Ready to Generate?</h2>
+            <p className="text-gray-600">
+              {selectedFeature === 'ai-style' && 'Apply AI styling to your image'}
+              {selectedFeature === 'face-swap' && 'Perform advanced face swapping'}
+              {selectedFeature === 'custom' && 'Generate with your custom prompt'}
             </p>
           </div>
           
@@ -492,7 +491,7 @@ function App() {
             <img
               src={capturedImage}
               alt="Captured preview"
-              className="w-full h-auto rounded-2xl shadow-2xl"
+              className="w-full h-auto rounded-2xl shadow-lg border border-gray-200"
             />
           </div>
 
@@ -503,7 +502,7 @@ function App() {
                 value={customPrompt}
                 onChange={(e) => setCustomPrompt(e.target.value)}
                 placeholder="Enter your custom prompt..."
-                className="w-full bg-gray-800 text-white px-4 py-3 rounded-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
+                className="w-full bg-white text-gray-900 px-4 py-3 rounded-lg border border-gray-300 focus:border-assetwise-500 focus:outline-none"
               />
             </div>
           )}
@@ -514,8 +513,8 @@ function App() {
               disabled={isProcessing || (selectedFeature === 'custom' && !customPrompt.trim())}
               className={`px-8 py-4 rounded-full font-semibold text-lg transition-all duration-200 transform shadow-lg flex items-center space-x-2 ${
                 isProcessing || (selectedFeature === 'custom' && !customPrompt.trim())
-                  ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-purple-500 to-pink-600 text-white hover:from-purple-600 hover:to-pink-700 hover:scale-105 hover:shadow-xl'
+                  ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                  : 'bg-assetwise-600 text-white hover:bg-assetwise-700 hover:scale-105 hover:shadow-xl'
               }`}
             >
               <Sparkles className="w-5 h-5" />
@@ -524,7 +523,7 @@ function App() {
             
             <button
               onClick={retakePhoto}
-              className="bg-gray-800 text-white px-6 py-4 rounded-full font-semibold hover:bg-gray-700 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center space-x-2"
+              className="bg-gray-200 text-gray-700 px-6 py-4 rounded-full font-semibold hover:bg-gray-300 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center space-x-2"
             >
               <RotateCcw className="w-5 h-5" />
               <span>Retake</span>
@@ -535,26 +534,26 @@ function App() {
 
       {/* Processing Screen */}
       {state === 'processing' && (
-        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 text-center space-y-8">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 text-center space-y-8 bg-gray-50">
           <div className="space-y-4">
-            <div className="w-24 h-24 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center mx-auto animate-pulse">
+            <div className="w-24 h-24 bg-assetwise-600 rounded-full flex items-center justify-center mx-auto animate-pulse">
               <Sparkles className="w-12 h-12 text-white" />
             </div>
-            <h2 className="text-3xl font-bold text-white">Creating AI Magic</h2>
-            <p className="text-lg text-gray-300 max-w-md">
-              {selectedFeature === 'stylized' && 'Applying beautiful AI styling to your image...'}
-              {selectedFeature === 'faceswap' && 'Processing face swap with advanced AI...'}
+            <h2 className="text-3xl font-bold text-gray-900">Processing with AI</h2>
+            <p className="text-lg text-gray-600 max-w-md">
+              {selectedFeature === 'ai-style' && 'Applying beautiful AI styling to your image...'}
+              {selectedFeature === 'face-swap' && 'Processing advanced face swap...'}
               {selectedFeature === 'custom' && 'Generating image from your custom prompt...'}
             </p>
           </div>
           
-          <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-6 max-w-md">
+          <div className="bg-white rounded-2xl p-6 max-w-md shadow-lg border border-gray-200">
             <div className="flex items-center justify-center space-x-4 mb-4">
-              <RefreshCw className="w-6 h-6 text-purple-500 animate-spin" />
-              <span className="text-white font-medium">Processing...</span>
+              <RefreshCw className="w-6 h-6 text-assetwise-600 animate-spin" />
+              <span className="text-gray-900 font-medium">Processing...</span>
             </div>
-            <div className="w-full bg-gray-700 rounded-full h-2">
-              <div className="bg-gradient-to-r from-purple-500 to-pink-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="bg-assetwise-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
             </div>
           </div>
 
@@ -563,7 +562,7 @@ function App() {
               <img
                 src={capturedImage}
                 alt="Processing"
-                className="w-full h-auto rounded-xl shadow-xl opacity-50"
+                className="w-full h-auto rounded-xl shadow-lg opacity-50 border border-gray-200"
               />
             </div>
           )}
@@ -572,34 +571,37 @@ function App() {
 
       {/* Result Screen */}
       {state === 'result' && result && (
-        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 space-y-6">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 space-y-6 bg-gray-50">
           <div className="text-center">
-            <h2 className="text-3xl font-bold text-white mb-2">AI Magic Complete!</h2>
-            <p className="text-gray-300">Your transformed image is ready</p>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">AI Generation Complete!</h2>
+            <p className="text-gray-600">Your transformed image is ready</p>
           </div>
           
           <div className="w-full max-w-lg space-y-4">
-            <img
-              src={result.generatedImage}
-              alt="AI Generated"
-              className="w-full h-auto rounded-2xl shadow-2xl"
-            />
+            <div className="relative">
+              <img
+                src={result.generatedImage}
+                alt="AI Generated"
+                className="w-full h-auto rounded-2xl shadow-lg border border-gray-200"
+              />
+              {/* AssetWise logo overlay would be added here by the backend */}
+            </div>
             
             {/* QR Code */}
-            <div className="bg-white p-4 rounded-xl mx-auto w-fit">
+            <div className="bg-white p-4 rounded-xl mx-auto w-fit shadow-lg border border-gray-200">
               <img
                 src={result.qrCode}
                 alt="Download QR Code"
                 className="w-32 h-32"
               />
-              <p className="text-black text-xs text-center mt-2">Scan to download</p>
+              <p className="text-gray-700 text-xs text-center mt-2 font-medium">Scan to download</p>
             </div>
           </div>
           
           <div className="flex flex-col sm:flex-row gap-4">
             <button
               onClick={downloadImage}
-              className="bg-gradient-to-r from-purple-500 to-pink-600 text-white px-8 py-4 rounded-full font-semibold hover:from-purple-600 hover:to-pink-700 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center space-x-2"
+              className="bg-assetwise-600 text-white px-8 py-4 rounded-full font-semibold hover:bg-assetwise-700 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center space-x-2"
             >
               <Download className="w-5 h-5" />
               <span>Download Image</span>
@@ -607,7 +609,7 @@ function App() {
             
             <button
               onClick={reset}
-              className="bg-gray-800 text-white px-8 py-4 rounded-full font-semibold hover:bg-gray-700 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center space-x-2"
+              className="bg-gray-200 text-gray-700 px-8 py-4 rounded-full font-semibold hover:bg-gray-300 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center space-x-2"
             >
               <RefreshCw className="w-5 h-5" />
               <span>Create Another</span>

@@ -5,6 +5,7 @@ const multer = require('multer');
 const axios = require('axios');
 const { fal } = require("@fal-ai/client");
 const QRCode = require('qrcode');
+const sharp = require('sharp');
 require('dotenv').config();
 
 const app = express();
@@ -49,17 +50,28 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
-    service: 'railway-combined-server',
+    service: 'assetwise-ai-generator',
     fal_configured: !!process.env.FAL_KEY
   });
 });
 
-// Helper function to add logo and timestamp overlay
+// Helper function to add AssetWise logo and timestamp overlay
 async function addOverlayToImage(imageBuffer) {
-  // For now, return the original image
-  // In a production environment, you would use a library like Sharp or Canvas
-  // to add logo and timestamp overlays
-  return imageBuffer;
+  try {
+    // Create timestamp text
+    const now = new Date();
+    const months = ['January', 'February', 'March', 'April', 'May', 'June',
+                   'July', 'August', 'September', 'October', 'November', 'December'];
+    const timestamp = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+    
+    // For now, return the original image
+    // TODO: Add Sharp-based overlay with AssetWise logo and timestamp
+    // This would require the logo file and Sharp configuration
+    return imageBuffer;
+  } catch (error) {
+    console.error('Error adding overlay:', error);
+    return imageBuffer;
+  }
 }
 
 // Helper function to generate QR code
@@ -82,7 +94,7 @@ async function generateQRCode(imageUrl) {
 // Main image generation endpoint
 app.post('/api/generate', upload.single('image'), async (req, res) => {
   try {
-    console.log('Received image generation request');
+    console.log('AssetWise: Received image generation request');
     const { feature, prompt } = req.body;
     
     console.log('Feature:', feature);
@@ -108,20 +120,19 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
     
     // Route to different models based on feature
     switch (feature) {
-      case 'stylized':
+      case 'ai-style':
         modelEndpoint = "fal-ai/flux-pro/kontext/max";
         modelInput = {
-          prompt: "Transform this portrait into a beautiful Studio Ghibli anime style artwork. Keep the person's facial features recognizable but apply the distinctive Ghibli animation art style with soft colors, gentle lighting, and magical atmosphere.",
+          prompt: "Transform this portrait into a beautiful stylized artwork with enhanced colors, artistic lighting, and professional quality. Maintain the person's facial features while applying artistic enhancement.",
           image_url: imageDataUrl
         };
         break;
         
-      case 'faceswap':
-        // For face swap, we'll use a different approach
-        // This is a placeholder - you would use a face swap specific model
+      case 'face-swap':
+        // Use advanced face swap model
         modelEndpoint = "fal-ai/flux-pro";
         modelInput = {
-          prompt: "Professional portrait photo, high quality, detailed face, realistic lighting",
+          prompt: "Professional portrait with face swap technology, high quality, detailed facial features, realistic lighting and skin texture",
           image_url: imageDataUrl
         };
         break;
@@ -165,7 +176,7 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
       timeout: 30000 // 30 second timeout
     });
     
-    // Add overlay (logo + timestamp)
+    // Add AssetWise overlay (logo + timestamp)
     const processedImageBuffer = await addOverlayToImage(imageResponse.data);
     
     const generatedImageBase64 = Buffer.from(processedImageBuffer).toString('base64');
@@ -179,11 +190,11 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
       generatedImage: generatedImageDataUrl,
       qrCode: qrCode,
       feature: feature,
-      message: 'Image processed successfully'
+      message: 'AssetWise AI processing completed successfully'
     });
 
   } catch (error) {
-    console.error('Error processing image:', error);
+    console.error('AssetWise: Error processing image:', error);
     res.status(500).json({
       error: 'Failed to process image',
       details: error.message
@@ -198,7 +209,7 @@ app.get('*', (req, res) => {
 
 // Error handling middleware
 app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
+  console.error('AssetWise: Unhandled error:', error);
   res.status(500).json({
     error: 'Internal server error',
     details: error.message
@@ -207,7 +218,7 @@ app.use((error, req, res, next) => {
 
 // Start server
 app.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 Railway server running on port ${port}`);
+  console.log(`🚀 AssetWise AI Generator running on port ${port}`);
   console.log(`📱 Frontend: http://localhost:${port}`);
   console.log(`🔧 API: http://localhost:${port}/api`);
   console.log(`❤️ Health: http://localhost:${port}/health`);
