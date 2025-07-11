@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Camera, Upload, Download, RefreshCw, Sparkles, ArrowLeft, Palette, RotateCcw, Users, Type, RotateCw, X } from 'lucide-react';
+import QRCode from 'qrcode';
 
 type AppState = 'welcome' | 'camera' | 'preview' | 'processing' | 'result';
 type FeatureType = 'ai-style' | 'face-swap' | 'custom';
@@ -290,6 +291,19 @@ function App() {
     setState('welcome');
   }, [stopCamera]);
 
+  const generateDownloadableQR = useCallback(async (imageData: string) => {
+    // Create a special URL that the QR scanner can use
+    const downloadData = {
+      type: 'image_download',
+      data: imageData,
+      filename: `ASW-AI-${Date.now()}.jpg`
+    };
+    
+    // Create QR code with JSON data
+    const qrCodeDataUrl = await QRCode.toDataURL(JSON.stringify(downloadData));
+    return qrCodeDataUrl;
+  }, []);
+
   useEffect(() => {
     return () => stopCamera();
   }, [stopCamera]);
@@ -479,7 +493,7 @@ function App() {
                   </button>
                 </div>
                 <div className="space-y-3">
-                  <p className="text-gray-300 text-sm">Optional: Upload faces for custom swapping</p>
+                  <p className="text-gray-300 text-sm mb-2">Optional: Upload faces for custom swapping</p>
                   
                   <div className="grid grid-cols-1 gap-3">
                     <div>
