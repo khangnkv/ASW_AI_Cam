@@ -92,15 +92,22 @@ async function generateQRCode(imageUrl) {
   }
 }
 // Main image generation endpoint
-app.post('/api/generate', upload.single('image'), async (req, res) => {
+app.post('/api/generate', upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'sourceFace', maxCount: 1 },
+  { name: 'targetFace', maxCount: 1 },
+  { name: 'template', maxCount: 1 }
+]), async (req, res) => {
   try {
     console.log('AssetWise: Received image generation request');
     const { feature, prompt } = req.body;
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
     
     console.log('Feature:', feature);
     console.log('Custom prompt:', prompt);
+    console.log('Uploaded files:', Object.keys(files || {}));
     
-    if (!req.file) {
+    if (!files?.image?.[0]) {
       return res.status(400).json({ error: 'No image provided' });
     }
 
@@ -109,8 +116,9 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
     }
 
     // Convert image to base64
-    const imageBase64 = req.file.buffer.toString('base64');
-    const imageDataUrl = `data:${req.file.mimetype};base64,${imageBase64}`;
+    const mainImage = files.image[0];
+    const imageBase64 = mainImage.buffer.toString('base64');
+    const imageDataUrl = `data:${mainImage.mimetype};base64,${imageBase64}`;
     
     console.log('Submitting job to FAL.ai with feature:', feature);
     
@@ -129,12 +137,35 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
         break;
         
       case 'face-swap':
-        // Use advanced face swap model
         modelEndpoint = "fal-ai/flux-pro";
-        modelInput = {
-          prompt: "Professional portrait with face swap technology, high quality, detailed facial features, realistic lighting and skin texture",
-          image_url: imageDataUrl
-        };
+        
+        // Handle face swap with optional uploads
+        if (files?.sourceFace?.[0] || files?.targetFace?.[0]) {
+          // Custom face swap with uploaded faces
+          const sourceFaceBase64 = files?.sourceFace?.[0] 
+            ? files.sourceFace[0].buffer.toString('base64')
+            : null;
+          const targetFaceBase64 = files?.targetFace?.[0]
+            ? files.targetFace[0].buffer.toString('base64')
+            : null;
+          const templateBase64 = files?.template?.[0]
+            ? files.template[0].buffer.toString('base64')
+            : null;
+            
+          modelInput = {
+            prompt: "Professional face swap with high quality, detailed facial features, realistic lighting and skin texture, seamless blending",
+            image_url: imageDataUrl,
+            source_face: sourceFaceBase64 ? `data:image/jpeg;base64,${sourceFaceBase64}` : undefined,
+            target_face: targetFaceBase64 ? `data:image/jpeg;base64,${targetFaceBase64}` : undefined,
+            template_image: templateBase64 ? `data:image/jpeg;base64,${templateBase64}` : undefined
+          };
+        } else {
+          // Quick face swap using detected faces in the image
+          modelInput = {
+            prompt: "Professional face swap using detected faces in the image, high quality, detailed facial features, realistic lighting and skin texture",
+            image_url: imageDataUrl
+          };
+        }
         break;
         
       case 'custom':
