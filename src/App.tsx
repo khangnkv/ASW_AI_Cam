@@ -378,7 +378,6 @@ function App() {
                   }}
                 />
                 <div>
-                  <h1 className="text-lg font-semibold text-gray-900">AssetWise AI</h1>
                   <p className="text-xs text-gray-500">Image Generator</p>
                 </div>
               </div>
@@ -398,17 +397,6 @@ function App() {
 
       {/* Welcome Screen */}
       {state === 'welcome' && (
-        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 text-center space-y-8">
-          <div className="space-y-6">
-            <img 
-              src="/assetwise_logo.png" 
-              alt="AssetWise" 
-              className="h-20 w-auto mx-auto"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-            <div>
               <h2 className="text-3xl font-bold text-gray-900 mb-2">AI Image Generator</h2>
               <p className="text-lg text-gray-600 max-w-md">
                 Transform your photos with advanced AI technology. Choose from multiple generation modes.
