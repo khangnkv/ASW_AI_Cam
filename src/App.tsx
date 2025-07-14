@@ -50,6 +50,16 @@ const features: FeatureOption[] = [
   }
 ];
 
+// Preset faces for face swap option 1
+const presetFaces = [
+  { id: 'face1', name: 'Celebrity 1', url: '/preset-faces/face1.jpg' },
+  { id: 'face2', name: 'Celebrity 2', url: '/preset-faces/face2.jpg' },
+  { id: 'face3', name: 'Celebrity 3', url: '/preset-faces/face3.jpg' },
+  { id: 'face4', name: 'Celebrity 4', url: '/preset-faces/face4.jpg' },
+  { id: 'face5', name: 'Celebrity 5', url: '/preset-faces/face5.jpg' },
+  { id: 'face6', name: 'Celebrity 6', url: '/preset-faces/face6.jpg' },
+];
+
 function App() {
   const [state, setState] = useState<AppState>('welcome');
   const [selectedFeature, setSelectedFeature] = useState<FeatureType>('ai-style');
@@ -66,7 +76,8 @@ function App() {
   const [faceSwapUploads, setFaceSwapUploads] = useState<FaceSwapUploads>({
     sourceFaces: []
   });
-  const [faceSwapMode, setFaceSwapMode] = useState<'auto' | 'upload-faces' | 'upload-background'>('auto');
+  const [faceSwapMode, setFaceSwapMode] = useState<'preset' | 'upload-faces' | 'upload-background'>('preset');
+  const [selectedPresetFaces, setSelectedPresetFaces] = useState<string[]>([]);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -177,20 +188,6 @@ function App() {
     }
   }, [stopCamera, isCameraReady]);
 
-  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const imageData = e.target?.result as string;
-        setCapturedImage(imageData);
-        stopCamera();
-        setState('preview');
-      };
-      reader.readAsDataURL(file);
-    }
-  }, [stopCamera]);
-
   const handleFaceSwapFileUpload = useCallback((type: 'sourceFaces' | 'background' | 'template', files: FileList | null) => {
     if (!files) return;
     
@@ -211,6 +208,16 @@ function App() {
         templateImage: files[0]
       }));
     }
+  }, []);
+
+  const togglePresetFace = useCallback((faceId: string) => {
+    setSelectedPresetFaces(prev => {
+      if (prev.includes(faceId)) {
+        return prev.filter(id => id !== faceId);
+      } else {
+        return [...prev, faceId].slice(0, 3); // Max 3 preset faces
+      }
+    });
   }, []);
 
   const retakePhoto = useCallback(() => {
@@ -241,6 +248,10 @@ function App() {
       // Add face swap uploads if available
       if (selectedFeature === 'face-swap') {
         formData.append('faceSwapMode', faceSwapMode);
+        
+        if (faceSwapMode === 'preset' && selectedPresetFaces.length > 0) {
+          formData.append('presetFaces', JSON.stringify(selectedPresetFaces));
+        }
         
         if (faceSwapMode === 'upload-faces' && faceSwapUploads.sourceFaces.length > 0) {
           faceSwapUploads.sourceFaces.forEach((file, index) => {
@@ -292,7 +303,7 @@ function App() {
     } finally {
       setIsProcessing(false);
     }
-  }, [capturedImage, selectedFeature, customPrompt, faceSwapUploads, faceSwapMode]);
+  }, [capturedImage, selectedFeature, customPrompt, faceSwapUploads, faceSwapMode, selectedPresetFaces]);
 
   const downloadImage = useCallback(async () => {
     if (!result?.generatedImage || !resultImageRef.current) return;
@@ -339,7 +350,8 @@ function App() {
     setShowCustomPromptInput(false);
     setShowFaceSwapModal(false);
     setFaceSwapUploads({ sourceFaces: [] });
-    setFaceSwapMode('auto');
+    setFaceSwapMode('preset');
+    setSelectedPresetFaces([]);
     setIsCameraReady(false);
     setIsStartingCamera(false);
     setState('welcome');
@@ -351,36 +363,38 @@ function App() {
 
   return (
     <div className="min-h-screen bg-white text-gray-900 overflow-hidden font-sans">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <img 
-                src="/assetwise_logo.png" 
-                alt="AssetWise" 
-                className="h-8 w-auto"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900">AssetWise AI</h1>
-                <p className="text-xs text-gray-500">Image Generator</p>
+      {/* Header - Only show on non-camera screens */}
+      {state !== 'camera' && (
+        <div className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
+          <div className="max-w-4xl mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <img 
+                  src="/assetwise_logo.png" 
+                  alt="AssetWise" 
+                  className="h-8 w-auto"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <div>
+                  <h1 className="text-lg font-semibold text-gray-900">AssetWise AI</h1>
+                  <p className="text-xs text-gray-500">Image Generator</p>
+                </div>
               </div>
+              {state !== 'welcome' && (
+                <button
+                  onClick={reset}
+                  className="flex items-center space-x-2 px-3 py-2 text-gray-500 hover:text-assetwise-600 transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span className="text-sm">Reset</span>
+                </button>
+              )}
             </div>
-            {state !== 'welcome' && (
-              <button
-                onClick={reset}
-                className="flex items-center space-x-2 px-3 py-2 text-gray-500 hover:text-assetwise-600 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span className="text-sm">Reset</span>
-              </button>
-            )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Welcome Screen */}
       {state === 'welcome' && (
@@ -437,8 +451,35 @@ function App() {
 
       {/* Camera Screen */}
       {state === 'camera' && (
-        <div className="relative h-[calc(100vh-80px)] bg-black">
-          <div className="relative w-full h-full" onClick={isCameraReady ? captureImage : undefined}>
+        <div className="relative h-screen bg-black">
+          {/* Top Header with Logo */}
+          <div className="absolute top-0 left-0 right-0 z-30 bg-white border-b border-gray-200">
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="flex items-center space-x-3">
+                <img 
+                  src="/assetwise_logo.png" 
+                  alt="AssetWise" 
+                  className="h-8 w-auto"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <div>
+                  <h1 className="text-lg font-semibold text-gray-900">AssetWise AI</h1>
+                  <p className="text-xs text-gray-500">Image Generator</p>
+                </div>
+              </div>
+              <button
+                onClick={reset}
+                className="flex items-center space-x-2 px-3 py-2 text-gray-500 hover:text-assetwise-600 transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span className="text-sm">Reset</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="relative w-full h-full pt-16" onClick={isCameraReady ? captureImage : undefined}>
             <video
               ref={videoRef}
               autoPlay
@@ -465,7 +506,7 @@ function App() {
           </div>
 
           {/* Feature Selection Bar */}
-          <div className="absolute top-20 left-0 right-0 px-4">
+          <div className="absolute top-24 left-0 right-0 px-4">
             <div className="flex justify-center space-x-2">
               {features.map((feature) => {
                 const IconComponent = feature.icon;
@@ -502,7 +543,7 @@ function App() {
 
           {/* Custom Prompt Input */}
           {showCustomPromptInput && selectedFeature === 'custom' && (
-            <div className="absolute top-40 left-4 right-4">
+            <div className="absolute top-44 left-4 right-4">
               <div className="bg-black/80 backdrop-blur-sm rounded-xl p-4">
                 <input
                   type="text"
@@ -517,7 +558,7 @@ function App() {
 
           {/* Face Swap Modal */}
           {showFaceSwapModal && selectedFeature === 'face-swap' && (
-            <div className="absolute top-40 left-4 right-4">
+            <div className="absolute top-44 left-4 right-4 max-h-[60vh] overflow-y-auto">
               <div className="bg-black/90 backdrop-blur-sm rounded-xl p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-white font-semibold">Face Swap Mode</h3>
@@ -529,18 +570,19 @@ function App() {
                   </button>
                 </div>
                 
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 gap-2">
+                <div className="space-y-4">
+                  {/* Mode Selection */}
+                  <div className="space-y-3">
                     <label className="flex items-center space-x-2">
                       <input
                         type="radio"
                         name="faceSwapMode"
-                        value="auto"
-                        checked={faceSwapMode === 'auto'}
+                        value="preset"
+                        checked={faceSwapMode === 'preset'}
                         onChange={(e) => setFaceSwapMode(e.target.value as any)}
                         className="text-assetwise-600"
                       />
-                      <span className="text-white text-sm">Auto-detect faces in captured image</span>
+                      <span className="text-white text-sm">Select from preset faces</span>
                     </label>
                     
                     <label className="flex items-center space-x-2">
@@ -564,13 +606,48 @@ function App() {
                         onChange={(e) => setFaceSwapMode(e.target.value as any)}
                         className="text-assetwise-600"
                       />
-                      <span className="text-white text-sm">Upload full-body background</span>
+                      <span className="text-white text-sm">Upload full-body background to swap into</span>
                     </label>
                   </div>
                   
+                  {/* Preset Faces Grid */}
+                  {faceSwapMode === 'preset' && (
+                    <div>
+                      <label className="block text-white text-sm mb-2">Select Preset Faces (max 3)</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {presetFaces.map((face) => (
+                          <button
+                            key={face.id}
+                            onClick={() => togglePresetFace(face.id)}
+                            className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                              selectedPresetFaces.includes(face.id)
+                                ? 'border-assetwise-500 ring-2 ring-assetwise-500'
+                                : 'border-gray-600 hover:border-gray-400'
+                            }`}
+                          >
+                            <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                              <span className="text-white text-xs">{face.name}</span>
+                            </div>
+                            {selectedPresetFaces.includes(face.id) && (
+                              <div className="absolute top-1 right-1 w-5 h-5 bg-assetwise-500 rounded-full flex items-center justify-center">
+                                <span className="text-white text-xs">✓</span>
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                      {selectedPresetFaces.length > 0 && (
+                        <p className="text-gray-400 text-xs mt-2">
+                          {selectedPresetFaces.length} face(s) selected
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Upload External Faces */}
                   {faceSwapMode === 'upload-faces' && (
                     <div>
-                      <label className="block text-white text-sm mb-1">Upload Faces (max 5)</label>
+                      <label className="block text-white text-sm mb-1">Upload External Faces (max 5)</label>
                       <input
                         type="file"
                         accept="image/*"
@@ -580,30 +657,46 @@ function App() {
                       />
                       {faceSwapUploads.sourceFaces.length > 0 && (
                         <p className="text-gray-400 text-xs mt-1">
-                          {faceSwapUploads.sourceFaces.length} face(s) selected
+                          {faceSwapUploads.sourceFaces.length} face(s) uploaded
                         </p>
                       )}
                     </div>
                   )}
                   
+                  {/* Upload Background */}
                   {faceSwapMode === 'upload-background' && (
                     <div>
-                      <label className="block text-white text-sm mb-1">Background Image</label>
+                      <label className="block text-white text-sm mb-1">Upload Full-Body Background</label>
                       <input
                         type="file"
                         accept="image/*"
                         onChange={(e) => handleFaceSwapFileUpload('background', e.target.files)}
                         className="w-full text-white bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm"
                       />
+                      {faceSwapUploads.backgroundImage && (
+                        <p className="text-gray-400 text-xs mt-1">Background image uploaded</p>
+                      )}
                     </div>
                   )}
+
+                  {/* Custom Prompt for Face Swap */}
+                  <div>
+                    <label className="block text-white text-sm mb-1">Additional Specifications (Optional)</label>
+                    <input
+                      type="text"
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      placeholder="e.g., professional headshot, casual style..."
+                      className="w-full bg-gray-800 text-white px-3 py-2 rounded border border-gray-600 focus:border-assetwise-500 focus:outline-none text-sm"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {/* Camera Controls */}
-          <div className="absolute top-20 right-4">
+          <div className="absolute top-24 right-4">
             <button
               onClick={flipCamera}
               className="w-12 h-12 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors"
@@ -613,14 +706,7 @@ function App() {
           </div>
 
           <div className="absolute bottom-8 left-0 right-0 px-8">
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-12 h-12 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors"
-              >
-                <Upload className="w-5 h-5" />
-              </button>
-
+            <div className="flex items-center justify-center">
               <button
                 onClick={captureImage}
                 disabled={!isCameraReady}
@@ -632,18 +718,9 @@ function App() {
               >
                 <div className={`w-16 h-16 rounded-full ${isCameraReady ? 'bg-white' : 'bg-gray-500'}`}></div>
               </button>
-
-              <div className="w-12 h-12"></div>
             </div>
           </div>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
           <canvas ref={canvasRef} className="hidden" />
         </div>
       )}
@@ -685,12 +762,16 @@ function App() {
               <h3 className="font-semibold text-gray-900 mb-2">Face Swap Settings</h3>
               <div className="space-y-2 text-sm text-gray-600">
                 <p>• Mode: {faceSwapMode.replace('-', ' ')}</p>
+                {faceSwapMode === 'preset' && (
+                  <p>• Preset faces: {selectedPresetFaces.length > 0 ? `${selectedPresetFaces.length} selected` : 'None selected'}</p>
+                )}
                 {faceSwapMode === 'upload-faces' && (
-                  <p>• Faces: {faceSwapUploads.sourceFaces.length > 0 ? `${faceSwapUploads.sourceFaces.length} uploaded` : 'None uploaded'}</p>
+                  <p>• External faces: {faceSwapUploads.sourceFaces.length > 0 ? `${faceSwapUploads.sourceFaces.length} uploaded` : 'None uploaded'}</p>
                 )}
                 {faceSwapMode === 'upload-background' && (
                   <p>• Background: {faceSwapUploads.backgroundImage ? '✓ Uploaded' : 'None uploaded'}</p>
                 )}
+                {customPrompt && <p>• Specifications: {customPrompt}</p>}
               </div>
             </div>
           )}
@@ -767,29 +848,29 @@ function App() {
           
           <div className="w-full max-w-lg space-y-4">
             {/* AI Generated Image with Overlay */}
-            <div ref={resultImageRef} className="relative">
+            <div ref={resultImageRef} className="relative bg-white p-4 rounded-2xl shadow-lg">
+              {/* Logo at top */}
+              <div className="flex justify-center mb-4">
+                <img 
+                  src="/assetwise_logo.png" 
+                  alt="AssetWise" 
+                  className="h-12 w-auto"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
+              
+              {/* Generated Image */}
               <img
                 src={result.generatedImage}
                 alt="AI Generated"
-                className="w-full h-auto rounded-2xl shadow-lg border border-gray-200"
+                className="w-full h-auto rounded-xl shadow-md border border-gray-200"
               />
               
-              {/* Logo and Date Overlay */}
-              <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-lg">
-                <div className="flex items-center space-x-2">
-                  <img 
-                    src="/assetwise_logo.png" 
-                    alt="AssetWise" 
-                    className="h-6 w-auto"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                  <div className="text-xs">
-                    <div className="font-semibold text-gray-900">AssetWise AI</div>
-                    <div className="text-gray-600">{format(new Date(), 'dd-MM-yyyy')}</div>
-                  </div>
-                </div>
+              {/* Date and timestamp below image */}
+              <div className="text-center mt-4">
+                <p className="text-gray-900 font-medium">Date: {format(new Date(), 'dd MMMM yyyy')}</p>
               </div>
             </div>
             

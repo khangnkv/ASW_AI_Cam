@@ -139,20 +139,34 @@ app.post('/api/generate', upload.fields([
         // Prepare face swap input
         modelInput = {
           image_bytes: imageBase64, // Main image in base64
-          workflow_type: faceSwapMode === 'auto' ? 'auto_swap' : 'user_hair'
+          workflow_type: faceSwapMode === 'preset' ? 'auto_swap' : 'user_hair'
         };
 
-        // Handle different face swap modes
-        if (faceSwapMode === 'upload-faces' && files?.sourceFaces) {
+        // Handle preset faces
+        if (faceSwapMode === 'preset' && req.body.presetFaces) {
+          const presetFaces = JSON.parse(req.body.presetFaces);
+          // For now, use auto_swap mode with preset selection
+          modelInput.workflow_type = 'auto_swap';
+          modelInput.preset_faces = presetFaces;
+        }
+        // Handle uploaded external faces
+        else if (faceSwapMode === 'upload-faces' && files?.sourceFaces) {
           for (let i = 0; i < Math.min(files.sourceFaces.length, 5); i++) {
             const faceUrl = await uploadToFal(files.sourceFaces[i]);
             modelInput[`face_image_${i}`] = faceUrl;
             modelInput[`gender_${i}`] = 'auto';
           }
           modelInput.workflow_type = 'user_faces';
-        } else if (faceSwapMode === 'upload-background' && files?.background?.[0]) {
+        }
+        // Handle full-body background upload
+        else if (faceSwapMode === 'upload-background' && files?.background?.[0]) {
           modelInput.background_image = await uploadToFal(files.background[0]);
           modelInput.workflow_type = 'new_background';
+        }
+
+        // Add custom prompt if provided for face swap
+        if (prompt && prompt.trim()) {
+          modelInput.additional_prompt = prompt.trim();
         }
 
         if (files?.template?.[0]) {
