@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Camera, Upload, Download, RefreshCw, Sparkles, ArrowLeft, Palette, RotateCcw, Users, Type, RotateCw, X } from 'lucide-react';
-import QRCode from 'qrcode';
+import QRCode from 'react-qr-code';
+import html2canvas from 'html2canvas';
+import { format } from 'date-fns';
 
 type AppState = 'welcome' | 'camera' | 'preview' | 'processing' | 'result';
 type FeatureType = 'ai-style' | 'face-swap' | 'custom';
@@ -8,6 +10,7 @@ type FeatureType = 'ai-style' | 'face-swap' | 'custom';
 interface ProcessingResult {
   originalImage: string;
   generatedImage: string;
+  publicImageUrl: string;
   qrCode: string;
   feature: FeatureType;
   prompt?: string;
@@ -21,9 +24,9 @@ interface FeatureOption {
 }
 
 interface FaceSwapUploads {
-  sourceFace?: File;
-  targetFace?: File;
-  template?: File;
+  sourceFaces: File[];
+  backgroundImage?: File;
+  templateImage?: File;
 }
 
 const features: FeatureOption[] = [
@@ -31,7 +34,7 @@ const features: FeatureOption[] = [
     id: 'ai-style',
     name: 'AI Style',
     icon: Palette,
-    description: 'Template-based styling'
+    description: 'Apply beautiful AI styling'
   },
   {
     id: 'face-swap',
@@ -41,9 +44,9 @@ const features: FeatureOption[] = [
   },
   {
     id: 'custom',
-    name: 'Custom',
+    name: 'Custom Prompt',
     icon: Type,
-    description: 'Your own prompt'
+    description: 'Your own creative prompt'
   }
 ];
 
@@ -60,12 +63,16 @@ function App() {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [showCustomPromptInput, setShowCustomPromptInput] = useState(false);
   const [showFaceSwapModal, setShowFaceSwapModal] = useState(false);
-  const [faceSwapUploads, setFaceSwapUploads] = useState<FaceSwapUploads>({});
+  const [faceSwapUploads, setFaceSwapUploads] = useState<FaceSwapUploads>({
+    sourceFaces: []
+  });
+  const [faceSwapMode, setFaceSwapMode] = useState<'auto' | 'upload-faces' | 'upload-background'>('auto');
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const resultImageRef = useRef<HTMLDivElement>(null);
 
   const startCamera = useCallback(async () => {
     try {
@@ -161,7 +168,6 @@ function App() {
       
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        // Save the original image without mirroring
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageData = canvas.toDataURL('image/jpeg', 0.9);
         setCapturedImage(imageData);
@@ -185,11 +191,26 @@ function App() {
     }
   }, [stopCamera]);
 
-  const handleFaceSwapFileUpload = useCallback((type: keyof FaceSwapUploads, file: File | null) => {
-    setFaceSwapUploads(prev => ({
-      ...prev,
-      [type]: file || undefined
-    }));
+  const handleFaceSwapFileUpload = useCallback((type: 'sourceFaces' | 'background' | 'template', files: FileList | null) => {
+    if (!files) return;
+    
+    if (type === 'sourceFaces') {
+      const newFiles = Array.from(files).slice(0, 5); // Max 5 faces
+      setFaceSwapUploads(prev => ({
+        ...prev,
+        sourceFaces: newFiles
+      }));
+    } else if (type === 'background') {
+      setFaceSwapUploads(prev => ({
+        ...prev,
+        backgroundImage: files[0]
+      }));
+    } else if (type === 'template') {
+      setFaceSwapUploads(prev => ({
+        ...prev,
+        templateImage: files[0]
+      }));
+    }
   }, []);
 
   const retakePhoto = useCallback(() => {
@@ -219,14 +240,20 @@ function App() {
       
       // Add face swap uploads if available
       if (selectedFeature === 'face-swap') {
-        if (faceSwapUploads.sourceFace) {
-          formData.append('sourceFace', faceSwapUploads.sourceFace);
+        formData.append('faceSwapMode', faceSwapMode);
+        
+        if (faceSwapMode === 'upload-faces' && faceSwapUploads.sourceFaces.length > 0) {
+          faceSwapUploads.sourceFaces.forEach((file, index) => {
+            formData.append(`sourceFaces`, file);
+          });
         }
-        if (faceSwapUploads.targetFace) {
-          formData.append('targetFace', faceSwapUploads.targetFace);
+        
+        if (faceSwapMode === 'upload-background' && faceSwapUploads.backgroundImage) {
+          formData.append('background', faceSwapUploads.backgroundImage);
         }
-        if (faceSwapUploads.template) {
-          formData.append('template', faceSwapUploads.template);
+        
+        if (faceSwapUploads.templateImage) {
+          formData.append('template', faceSwapUploads.templateImage);
         }
       }
       
@@ -250,6 +277,7 @@ function App() {
       const processedResult: ProcessingResult = {
         originalImage: capturedImage,
         generatedImage: data.generatedImage,
+        publicImageUrl: data.publicImageUrl || data.generatedImage,
         qrCode: data.qrCode,
         feature: selectedFeature,
         prompt: selectedFeature === 'custom' ? customPrompt : undefined
@@ -264,12 +292,37 @@ function App() {
     } finally {
       setIsProcessing(false);
     }
-  }, [capturedImage, selectedFeature, customPrompt, faceSwapUploads]);
+  }, [capturedImage, selectedFeature, customPrompt, faceSwapUploads, faceSwapMode]);
 
-  const downloadImage = useCallback(() => {
-    if (result?.generatedImage) {
+  const downloadImage = useCallback(async () => {
+    if (!result?.generatedImage || !resultImageRef.current) return;
+    
+    try {
+      // Use html2canvas to capture the image with overlay
+      const canvas = await html2canvas(resultImageRef.current, {
+        backgroundColor: null,
+        scale: 2, // Higher quality
+        useCORS: true
+      });
+      
+      // Convert to blob and download
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.download = `assetwise-ai-${selectedFeature}-${format(new Date(), 'dd-MM-yyyy')}.jpg`;
+          link.href = url;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }
+      }, 'image/jpeg', 0.9);
+    } catch (error) {
+      console.error('Download error:', error);
+      // Fallback to direct image download
       const link = document.createElement('a');
-      link.download = `assetwise-ai-${selectedFeature}-${Date.now()}.jpg`;
+      link.download = `assetwise-ai-${selectedFeature}-${format(new Date(), 'dd-MM-yyyy')}.jpg`;
       link.href = result.generatedImage;
       document.body.appendChild(link);
       link.click();
@@ -285,24 +338,12 @@ function App() {
     setCustomPrompt('');
     setShowCustomPromptInput(false);
     setShowFaceSwapModal(false);
-    setFaceSwapUploads({});
+    setFaceSwapUploads({ sourceFaces: [] });
+    setFaceSwapMode('auto');
     setIsCameraReady(false);
     setIsStartingCamera(false);
     setState('welcome');
   }, [stopCamera]);
-
-  const generateDownloadableQR = useCallback(async (imageData: string) => {
-    // Create a special URL that the QR scanner can use
-    const downloadData = {
-      type: 'image_download',
-      data: imageData,
-      filename: `ASW-AI-${Date.now()}.jpg`
-    };
-    
-    // Create QR code with JSON data
-    const qrCodeDataUrl = await QRCode.toDataURL(JSON.stringify(downloadData));
-    return qrCodeDataUrl;
-  }, []);
 
   useEffect(() => {
     return () => stopCamera();
@@ -316,11 +357,10 @@ function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <img 
-                src="/assetwise-logo.png" 
+                src="/assetwise_logo.png" 
                 alt="AssetWise" 
                 className="h-8 w-auto"
                 onError={(e) => {
-                  // Fallback if logo doesn't load
                   e.currentTarget.style.display = 'none';
                 }}
               />
@@ -347,11 +387,10 @@ function App() {
         <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 text-center space-y-8">
           <div className="space-y-6">
             <img 
-              src="/assetwise-logo.png" 
+              src="/assetwise_logo.png" 
               alt="AssetWise" 
-              className="h-16 w-auto mx-auto"
+              className="h-20 w-auto mx-auto"
               onError={(e) => {
-                // Fallback if logo doesn't load
                 e.currentTarget.style.display = 'none';
               }}
             />
@@ -399,7 +438,6 @@ function App() {
       {/* Camera Screen */}
       {state === 'camera' && (
         <div className="relative h-[calc(100vh-80px)] bg-black">
-          {/* Video Preview with mirroring for user display */}
           <div className="relative w-full h-full" onClick={isCameraReady ? captureImage : undefined}>
             <video
               ref={videoRef}
@@ -410,7 +448,6 @@ function App() {
               style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
             />
             
-            {/* Loading overlay */}
             {!isCameraReady && (
               <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
                 <div className="text-white text-center">
@@ -420,7 +457,6 @@ function App() {
               </div>
             )}
             
-            {/* Tap to capture hint */}
             {isCameraReady && (
               <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/50 backdrop-blur-sm px-4 py-2 rounded-full">
                 <p className="text-white text-sm">Tap anywhere to capture</p>
@@ -428,7 +464,7 @@ function App() {
             )}
           </div>
 
-          {/* Feature Selection Bar - Top Center */}
+          {/* Feature Selection Bar */}
           <div className="absolute top-20 left-0 right-0 px-4">
             <div className="flex justify-center space-x-2">
               {features.map((feature) => {
@@ -484,7 +520,7 @@ function App() {
             <div className="absolute top-40 left-4 right-4">
               <div className="bg-black/90 backdrop-blur-sm rounded-xl p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-white font-semibold">Face Swap Options</h3>
+                  <h3 className="text-white font-semibold">Face Swap Mode</h3>
                   <button
                     onClick={() => setShowFaceSwapModal(false)}
                     className="text-gray-400 hover:text-white"
@@ -492,48 +528,81 @@ function App() {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
+                
                 <div className="space-y-3">
-                  <p className="text-gray-300 text-sm mb-2">Optional: Upload faces for custom swapping</p>
-                  
-                  <div className="grid grid-cols-1 gap-3">
-                    <div>
-                      <label className="block text-white text-sm mb-1">Source Face</label>
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className="flex items-center space-x-2">
                       <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFaceSwapFileUpload('sourceFace', e.target.files?.[0] || null)}
-                        className="w-full text-white bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm"
+                        type="radio"
+                        name="faceSwapMode"
+                        value="auto"
+                        checked={faceSwapMode === 'auto'}
+                        onChange={(e) => setFaceSwapMode(e.target.value as any)}
+                        className="text-assetwise-600"
                       />
-                    </div>
+                      <span className="text-white text-sm">Auto-detect faces in captured image</span>
+                    </label>
                     
-                    <div>
-                      <label className="block text-white text-sm mb-1">Target Face</label>
+                    <label className="flex items-center space-x-2">
                       <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFaceSwapFileUpload('targetFace', e.target.files?.[0] || null)}
-                        className="w-full text-white bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm"
+                        type="radio"
+                        name="faceSwapMode"
+                        value="upload-faces"
+                        checked={faceSwapMode === 'upload-faces'}
+                        onChange={(e) => setFaceSwapMode(e.target.value as any)}
+                        className="text-assetwise-600"
                       />
-                    </div>
+                      <span className="text-white text-sm">Upload external faces to swap</span>
+                    </label>
                     
-                    <div>
-                      <label className="block text-white text-sm mb-1">Template (Optional)</label>
+                    <label className="flex items-center space-x-2">
                       <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFaceSwapFileUpload('template', e.target.files?.[0] || null)}
-                        className="w-full text-white bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm"
+                        type="radio"
+                        name="faceSwapMode"
+                        value="upload-background"
+                        checked={faceSwapMode === 'upload-background'}
+                        onChange={(e) => setFaceSwapMode(e.target.value as any)}
+                        className="text-assetwise-600"
                       />
-                    </div>
+                      <span className="text-white text-sm">Upload full-body background</span>
+                    </label>
                   </div>
                   
-                  <p className="text-gray-400 text-xs">Leave empty to use automatic face detection from captured photo</p>
+                  {faceSwapMode === 'upload-faces' && (
+                    <div>
+                      <label className="block text-white text-sm mb-1">Upload Faces (max 5)</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => handleFaceSwapFileUpload('sourceFaces', e.target.files)}
+                        className="w-full text-white bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm"
+                      />
+                      {faceSwapUploads.sourceFaces.length > 0 && (
+                        <p className="text-gray-400 text-xs mt-1">
+                          {faceSwapUploads.sourceFaces.length} face(s) selected
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {faceSwapMode === 'upload-background' && (
+                    <div>
+                      <label className="block text-white text-sm mb-1">Background Image</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleFaceSwapFileUpload('background', e.target.files)}
+                        className="w-full text-white bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           )}
 
-          {/* Camera Flip Button - Top Right */}
+          {/* Camera Controls */}
           <div className="absolute top-20 right-4">
             <button
               onClick={flipCamera}
@@ -543,10 +612,8 @@ function App() {
             </button>
           </div>
 
-          {/* Bottom Controls */}
           <div className="absolute bottom-8 left-0 right-0 px-8">
             <div className="flex items-center justify-between">
-              {/* Upload Button - Left */}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="w-12 h-12 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors"
@@ -554,7 +621,6 @@ function App() {
                 <Upload className="w-5 h-5" />
               </button>
 
-              {/* Shutter Button - Center */}
               <button
                 onClick={captureImage}
                 disabled={!isCameraReady}
@@ -567,7 +633,6 @@ function App() {
                 <div className={`w-16 h-16 rounded-full ${isCameraReady ? 'bg-white' : 'bg-gray-500'}`}></div>
               </button>
 
-              {/* Empty space for symmetry - Right */}
               <div className="w-12 h-12"></div>
             </div>
           </div>
@@ -590,7 +655,7 @@ function App() {
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Ready to Generate?</h2>
             <p className="text-gray-600">
               {selectedFeature === 'ai-style' && 'Apply AI styling to your image'}
-              {selectedFeature === 'face-swap' && 'Perform advanced face swapping'}
+              {selectedFeature === 'face-swap' && `Face swap mode: ${faceSwapMode.replace('-', ' ')}`}
               {selectedFeature === 'custom' && 'Generate with your custom prompt'}
             </p>
           </div>
@@ -619,9 +684,13 @@ function App() {
             <div className="w-full max-w-sm bg-white rounded-lg p-4 border border-gray-200">
               <h3 className="font-semibold text-gray-900 mb-2">Face Swap Settings</h3>
               <div className="space-y-2 text-sm text-gray-600">
-                <p>• Source Face: {faceSwapUploads.sourceFace ? '✓ Uploaded' : 'Auto-detect from photo'}</p>
-                <p>• Target Face: {faceSwapUploads.targetFace ? '✓ Uploaded' : 'Auto-detect from photo'}</p>
-                <p>• Template: {faceSwapUploads.template ? '✓ Uploaded' : 'Use original background'}</p>
+                <p>• Mode: {faceSwapMode.replace('-', ' ')}</p>
+                {faceSwapMode === 'upload-faces' && (
+                  <p>• Faces: {faceSwapUploads.sourceFaces.length > 0 ? `${faceSwapUploads.sourceFaces.length} uploaded` : 'None uploaded'}</p>
+                )}
+                {faceSwapMode === 'upload-background' && (
+                  <p>• Background: {faceSwapUploads.backgroundImage ? '✓ Uploaded' : 'None uploaded'}</p>
+                )}
               </div>
             </div>
           )}
@@ -637,7 +706,7 @@ function App() {
               }`}
             >
               <Sparkles className="w-5 h-5" />
-              <span>Generate AI Image</span>
+              <span>Generate</span>
             </button>
             
             <button
@@ -697,26 +766,43 @@ function App() {
           </div>
           
           <div className="w-full max-w-lg space-y-4">
-            <div className="relative">
+            {/* AI Generated Image with Overlay */}
+            <div ref={resultImageRef} className="relative">
               <img
                 src={result.generatedImage}
                 alt="AI Generated"
                 className="w-full h-auto rounded-2xl shadow-lg border border-gray-200"
               />
-              {/* AssetWise logo overlay would be added here by the backend */}
+              
+              {/* Logo and Date Overlay */}
+              <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-lg">
+                <div className="flex items-center space-x-2">
+                  <img 
+                    src="/assetwise_logo.png" 
+                    alt="AssetWise" 
+                    className="h-6 w-auto"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                  <div className="text-xs">
+                    <div className="font-semibold text-gray-900">AssetWise AI</div>
+                    <div className="text-gray-600">{format(new Date(), 'dd-MM-yyyy')}</div>
+                  </div>
+                </div>
+              </div>
             </div>
             
-            {/* QR Code - Only appears after generation */}
-            {result.qrCode && (
-              <div className="bg-white p-4 rounded-xl mx-auto w-fit shadow-lg border border-gray-200">
-                <img
-                  src={result.qrCode}
-                  alt="Download QR Code"
-                  className="w-32 h-32"
-                />
-                <p className="text-gray-700 text-xs text-center mt-2 font-medium">Scan to download</p>
-              </div>
-            )}
+            {/* QR Code */}
+            <div className="bg-white p-4 rounded-xl mx-auto w-fit shadow-lg border border-gray-200">
+              <QRCode
+                value={result.publicImageUrl}
+                size={128}
+                level="M"
+                includeMargin={true}
+              />
+              <p className="text-gray-700 text-xs text-center mt-2 font-medium">Scan to view online</p>
+            </div>
           </div>
           
           <div className="flex flex-col sm:flex-row gap-4">

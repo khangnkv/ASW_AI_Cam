@@ -4,8 +4,8 @@ const cors = require('cors');
 const multer = require('multer');
 const axios = require('axios');
 const { fal } = require("@fal-ai/client");
-const QRCode = require('qrcode');
 const sharp = require('sharp');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
@@ -45,6 +45,14 @@ const upload = multer({
 // Serve static files from the frontend build
 app.use(express.static(path.join(__dirname, 'dist')));
 
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Serve uploaded images publicly
+app.use('/uploads', express.static(uploadsDir));
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
@@ -55,43 +63,25 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Helper function to add AssetWise logo and timestamp overlay
-async function addOverlayToImage(imageBuffer) {
+// Helper function to save image and return public URL
+async function saveImageAndGetUrl(imageBuffer, filename) {
   try {
-    // Create timestamp text
-    const now = new Date();
-    const months = ['January', 'February', 'March', 'April', 'May', 'June',
-                   'July', 'August', 'September', 'October', 'November', 'December'];
-    const timestamp = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+    const filepath = path.join(uploadsDir, filename);
+    await fs.promises.writeFile(filepath, imageBuffer);
     
-    // For now, return the original image
-    // TODO: Add Sharp-based overlay with AssetWise logo and timestamp
-    // This would require the logo file and Sharp configuration
-    return imageBuffer;
+    // Return public URL
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost:3000'}`
+      : `http://localhost:${port}`;
+    
+    return `${baseUrl}/uploads/${filename}`;
   } catch (error) {
-    console.error('Error adding overlay:', error);
-    return imageBuffer;
+    console.error('Error saving image:', error);
+    throw error;
   }
 }
 
-// Helper function to generate QR code
-async function generateQRCode(imageUrl) {
-  try {
-    const qrCodeDataUrl = await QRCode.toDataURL(imageUrl, {
-      width: 256,
-      margin: 2,
-      color: {
-        dark: '#000000',
-        light: '#FFFFFF'
-      }
-    });
-    return qrCodeDataUrl;
-  } catch (error) {
-    console.error('Error generating QR code:', error);
-    return null;
-  }
-}
-// Main image generation endpoint - Updated version
+// Main image generation endpoint
 app.post('/api/generate', upload.fields([
   { name: 'image', maxCount: 1 },          // Main/target image
   { name: 'sourceFaces', maxCount: 5 },    // Multiple source faces
@@ -100,11 +90,12 @@ app.post('/api/generate', upload.fields([
 ]), async (req, res) => {
   try {
     console.log('AssetWise: Received image generation request');
-    const { feature, prompt, options } = req.body;
+    const { feature, prompt, options, faceSwapMode } = req.body;
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
     
     console.log('Feature:', feature);
     console.log('Custom prompt:', prompt);
+    console.log('Face swap mode:', faceSwapMode);
     console.log('Uploaded files:', Object.keys(files || {}));
     
     if (!files?.image?.[0]) {
@@ -148,30 +139,24 @@ app.post('/api/generate', upload.fields([
         // Prepare face swap input
         modelInput = {
           image_bytes: imageBase64, // Main image in base64
-          workflow_type: 'user_hair' // Default workflow
+          workflow_type: faceSwapMode === 'auto' ? 'auto_swap' : 'user_hair'
         };
 
-        // Handle different face swap scenarios
-        if (files?.sourceFaces) {
-          // Scenario 2: Swap with user-uploaded faces
+        // Handle different face swap modes
+        if (faceSwapMode === 'upload-faces' && files?.sourceFaces) {
           for (let i = 0; i < Math.min(files.sourceFaces.length, 5); i++) {
             const faceUrl = await uploadToFal(files.sourceFaces[i]);
             modelInput[`face_image_${i}`] = faceUrl;
-            modelInput[`gender_${i}`] = options?.[`gender_${i}`] || 'auto';
+            modelInput[`gender_${i}`] = 'auto';
           }
-        }
-
-        if (files?.background?.[0]) {
-          // Scenario 3: New background
+          modelInput.workflow_type = 'user_faces';
+        } else if (faceSwapMode === 'upload-background' && files?.background?.[0]) {
           modelInput.background_image = await uploadToFal(files.background[0]);
           modelInput.workflow_type = 'new_background';
-        } else if (files?.template?.[0]) {
-          // Scenario 3: New body/pose
+        }
+
+        if (files?.template?.[0]) {
           modelInput.template_image = await uploadToFal(files.template[0]);
-          modelInput.workflow_type = 'new_pose';
-        } else if (!files?.sourceFaces) {
-          // Scenario 1: Auto swap detected faces in image
-          modelInput.workflow_type = 'auto_swap';
         }
         break;
         
@@ -231,17 +216,18 @@ app.post('/api/generate', upload.fields([
       timeout: 30000
     });
     
-    const processedImageBuffer = await addOverlayToImage(imageResponse.data);
-    const generatedImageBase64 = Buffer.from(processedImageBuffer).toString('base64');
+    const imageBuffer = Buffer.from(imageResponse.data);
+    const generatedImageBase64 = imageBuffer.toString('base64');
     const generatedImageDataUrl = `data:image/jpeg;base64,${generatedImageBase64}`;
     
-    // Generate QR code for download
-    const qrCode = await generateQRCode(generatedImageDataUrl);
+    // Save image to public directory and get URL
+    const filename = `assetwise-${feature}-${Date.now()}.jpg`;
+    const publicImageUrl = await saveImageAndGetUrl(imageBuffer, filename);
     
     res.json({
       success: true,
       generatedImage: generatedImageDataUrl,
-      qrCode: qrCode,
+      publicImageUrl: publicImageUrl,
       feature: feature,
       requestId: result.requestId,
       message: 'AssetWise AI processing completed successfully'
