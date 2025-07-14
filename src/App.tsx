@@ -397,12 +397,13 @@ function App() {
 
       {/* Welcome Screen */}
       {state === 'welcome' && (
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 text-center space-y-8 bg-gray-50">
+          <div className="space-y-4">
               <h2 className="text-3xl font-bold text-gray-900 mb-2">AI Image Generator</h2>
               <p className="text-lg text-gray-600 max-w-md">
                 Transform your photos with advanced AI technology. Choose from multiple generation modes.
               </p>
             </div>
-          </div>
           
           <div className="grid grid-cols-1 gap-4 w-full max-w-sm">
             {features.map((feature) => {
@@ -434,6 +435,7 @@ function App() {
           >
             {isStartingCamera ? 'Starting Camera...' : 'Start Creating'}
           </button>
+        </div>
         </div>
       )}
 
