@@ -91,16 +91,16 @@ async function generateQRCode(imageUrl) {
     return null;
   }
 }
-// Main image generation endpoint
+// Main image generation endpoint - Updated version
 app.post('/api/generate', upload.fields([
-  { name: 'image', maxCount: 1 },
-  { name: 'sourceFace', maxCount: 1 },
-  { name: 'targetFace', maxCount: 1 },
-  { name: 'template', maxCount: 1 }
+  { name: 'image', maxCount: 1 },          // Main/target image
+  { name: 'sourceFaces', maxCount: 5 },    // Multiple source faces
+  { name: 'background', maxCount: 1 },     // New background image
+  { name: 'template', maxCount: 1 }        // Template/pose reference
 ]), async (req, res) => {
   try {
     console.log('AssetWise: Received image generation request');
-    const { feature, prompt } = req.body;
+    const { feature, prompt, options } = req.body;
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
     
     console.log('Feature:', feature);
@@ -115,12 +115,18 @@ app.post('/api/generate', upload.fields([
       return res.status(500).json({ error: 'FAL_KEY not configured' });
     }
 
-    // Convert image to base64
+    // Helper function to upload files to FAL CDN
+    const uploadToFal = async (file) => {
+      const uploadResult = await fal.upload({
+        data: file.buffer,
+        contentType: file.mimetype
+      });
+      return uploadResult.url;
+    };
+
+    // Convert main image to base64
     const mainImage = files.image[0];
     const imageBase64 = mainImage.buffer.toString('base64');
-    const imageDataUrl = `data:${mainImage.mimetype};base64,${imageBase64}`;
-    
-    console.log('Submitting job to FAL.ai with feature:', feature);
     
     let result;
     let modelEndpoint;
@@ -131,48 +137,52 @@ app.post('/api/generate', upload.fields([
       case 'ai-style':
         modelEndpoint = "fal-ai/flux-pro/kontext/max";
         modelInput = {
-          prompt: "Transform this portrait into a beautiful stylized artwork with enhanced colors, artistic lighting, and professional quality. Maintain the person's facial features while applying artistic enhancement.",
-          image_url: imageDataUrl
+          prompt: prompt || "Transform this portrait into a beautiful stylized artwork with enhanced colors, artistic lighting, and professional quality. Maintain the person's facial features while applying artistic enhancement.",
+          image_url: `data:${mainImage.mimetype};base64,${imageBase64}`
         };
         break;
         
       case 'face-swap':
-        modelEndpoint = "fal-ai/flux-pro";
+        modelEndpoint = "easel-ai/advanced-face-swap";
         
-        // Handle face swap with optional uploads
-        if (files?.sourceFace?.[0] || files?.targetFace?.[0]) {
-          // Custom face swap with uploaded faces
-          const sourceFaceBase64 = files?.sourceFace?.[0] 
-            ? files.sourceFace[0].buffer.toString('base64')
-            : null;
-          const targetFaceBase64 = files?.targetFace?.[0]
-            ? files.targetFace[0].buffer.toString('base64')
-            : null;
-          const templateBase64 = files?.template?.[0]
-            ? files.template[0].buffer.toString('base64')
-            : null;
-            
-          modelInput = {
-            prompt: "Professional face swap with high quality, detailed facial features, realistic lighting and skin texture, seamless blending",
-            image_url: imageDataUrl,
-            source_face: sourceFaceBase64 ? `data:image/jpeg;base64,${sourceFaceBase64}` : undefined,
-            target_face: targetFaceBase64 ? `data:image/jpeg;base64,${targetFaceBase64}` : undefined,
-            template_image: templateBase64 ? `data:image/jpeg;base64,${templateBase64}` : undefined
-          };
-        } else {
-          // Quick face swap using detected faces in the image
-          modelInput = {
-            prompt: "Professional face swap using detected faces in the image, high quality, detailed facial features, realistic lighting and skin texture",
-            image_url: imageDataUrl
-          };
+        // Prepare face swap input
+        modelInput = {
+          image_bytes: imageBase64, // Main image in base64
+          workflow_type: 'user_hair' // Default workflow
+        };
+
+        // Handle different face swap scenarios
+        if (files?.sourceFaces) {
+          // Scenario 2: Swap with user-uploaded faces
+          for (let i = 0; i < Math.min(files.sourceFaces.length, 5); i++) {
+            const faceUrl = await uploadToFal(files.sourceFaces[i]);
+            modelInput[`face_image_${i}`] = faceUrl;
+            modelInput[`gender_${i}`] = options?.[`gender_${i}`] || 'auto';
+          }
+        }
+
+        if (files?.background?.[0]) {
+          // Scenario 3: New background
+          modelInput.background_image = await uploadToFal(files.background[0]);
+          modelInput.workflow_type = 'new_background';
+        } else if (files?.template?.[0]) {
+          // Scenario 3: New body/pose
+          modelInput.template_image = await uploadToFal(files.template[0]);
+          modelInput.workflow_type = 'new_pose';
+        } else if (!files?.sourceFaces) {
+          // Scenario 1: Auto swap detected faces in image
+          modelInput.workflow_type = 'auto_swap';
         }
         break;
         
       case 'custom':
-        modelEndpoint = "fal-ai/flux-pro";
+        modelEndpoint = "fal-ai/flux-pro/kontext/max";
         modelInput = {
           prompt: prompt || "Transform this image with artistic style",
-          image_url: imageDataUrl
+          image_url: `data:${mainImage.mimetype};base64,${imageBase64}`,
+          num_inference_steps: options?.steps || 28,
+          guidance_scale: options?.guidance || 7.5,
+          strength: options?.strength || 0.8
         };
         break;
         
@@ -180,36 +190,48 @@ app.post('/api/generate', upload.fields([
         throw new Error('Invalid feature selected');
     }
     
-    // Submit to FAL.ai
+    console.log('Submitting to FAL.ai with:', {
+      endpoint: modelEndpoint,
+      input: { ...modelInput, image_bytes: '...' } // Hide large base64 in logs
+    });
+    
+    // Submit to FAL.ai with enhanced error handling
     result = await fal.subscribe(modelEndpoint, {
       input: modelInput,
       logs: true,
       onQueueUpdate: (update) => {
-        console.log('Queue update:', update);
+        console.log('Queue update:', update.status);
+        // Could send SSE updates here
       },
+    }).catch(error => {
+      console.error('FAL API error:', error.response?.data || error.message);
+      throw new Error(`FAL processing failed: ${error.response?.data?.detail || error.message}`);
     });
 
-    console.log('Result received:', result);
+    console.log('Result received:', {
+      requestId: result.requestId,
+      status: result.status
+    });
 
-    // Check response structure (handle both old and new API responses)
+    // Handle different response formats
     let generatedImageUrl;
-    if (result.images && result.images.length > 0) {
+    if (result.images?.[0]?.url) {
       generatedImageUrl = result.images[0].url;
-    } else if (result.data && result.data.images && result.data.images.length > 0) {
+    } else if (result.data?.images?.[0]?.url) {
       generatedImageUrl = result.data.images[0].url;
+    } else if (result.image?.url) {
+      generatedImageUrl = result.image.url;
     } else {
-      throw new Error('No images generated by FAL.ai');
+      throw new Error('No valid image URL in response');
     }
 
-    // Download and convert to base64
+    // Download and process image
     const imageResponse = await axios.get(generatedImageUrl, {
       responseType: 'arraybuffer',
-      timeout: 30000 // 30 second timeout
+      timeout: 30000
     });
     
-    // Add AssetWise overlay (logo + timestamp)
     const processedImageBuffer = await addOverlayToImage(imageResponse.data);
-    
     const generatedImageBase64 = Buffer.from(processedImageBuffer).toString('base64');
     const generatedImageDataUrl = `data:image/jpeg;base64,${generatedImageBase64}`;
     
@@ -221,6 +243,7 @@ app.post('/api/generate', upload.fields([
       generatedImage: generatedImageDataUrl,
       qrCode: qrCode,
       feature: feature,
+      requestId: result.requestId,
       message: 'AssetWise AI processing completed successfully'
     });
 
@@ -228,11 +251,12 @@ app.post('/api/generate', upload.fields([
     console.error('AssetWise: Error processing image:', error);
     res.status(500).json({
       error: 'Failed to process image',
-      details: error.message
+      details: error.message,
+      feature: req.body.feature,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
-
 // Serve the React app for all other routes (SPA routing)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
