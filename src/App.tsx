@@ -1,16 +1,19 @@
+// App.tsx
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Camera, Upload, Download, RefreshCw, Sparkles, ArrowLeft, Palette, RotateCcw, Users, Type, RotateCw, X } from 'lucide-react';
 import QRCode from 'qrcode';
 
 type AppState = 'welcome' | 'camera' | 'preview' | 'processing' | 'result';
-type FeatureType = 'ai-style' | 'face-swap' | 'custom';
+type FeatureType = 'ai-style' | 'custom';
 
 interface ProcessingResult {
-  originalImage: string;
   generatedImage: string;
-  qrCode: string;
-  feature: FeatureType;
-  prompt?: string;
+  publicImageUrl: string;
+  qrCode?: string;
+  feature: string;
+  timestamp?: string;
+  message: string;
 }
 
 interface FeatureOption {
@@ -20,24 +23,12 @@ interface FeatureOption {
   description: string;
 }
 
-interface FaceSwapUploads {
-  sourceFace?: File;
-  targetFace?: File;
-  template?: File;
-}
-
 const features: FeatureOption[] = [
   {
     id: 'ai-style',
     name: 'AI Style',
     icon: Palette,
     description: 'Template-based styling'
-  },
-  {
-    id: 'face-swap',
-    name: 'Face Swap',
-    icon: Users,
-    description: 'Advanced face swapping'
   },
   {
     id: 'custom',
@@ -59,8 +50,7 @@ function App() {
   const [isStartingCamera, setIsStartingCamera] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [showCustomPromptInput, setShowCustomPromptInput] = useState(false);
-  const [showFaceSwapModal, setShowFaceSwapModal] = useState(false);
-  const [faceSwapUploads, setFaceSwapUploads] = useState<FaceSwapUploads>({});
+  const [logoError, setLogoError] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -161,7 +151,6 @@ function App() {
       
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        // Save the original image without mirroring
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageData = canvas.toDataURL('image/jpeg', 0.9);
         setCapturedImage(imageData);
@@ -185,97 +174,87 @@ function App() {
     }
   }, [stopCamera]);
 
-  const handleFaceSwapFileUpload = useCallback((type: keyof FaceSwapUploads, file: File | null) => {
-    setFaceSwapUploads(prev => ({
-      ...prev,
-      [type]: file || undefined
-    }));
-  }, []);
-
   const retakePhoto = useCallback(() => {
     setCapturedImage(null);
     setError(null);
+    setCustomPrompt('');
     startCamera();
   }, [startCamera]);
 
-  const generateAIImage = useCallback(async () => {
-    if (!capturedImage) return;
-    
-    setIsProcessing(true);
+  // Main generation logic - no longer needs useCallback
+  const generateImage = async (imageFile: File) => {
     setState('processing');
     setError(null);
+  
+    // Always use the latest state directly
+    const feature = selectedFeature;
+    const prompt = customPrompt;
 
+    console.log('=== GENERATE IMAGE INITIATED ===');
+    console.log('Feature:', feature);
+    console.log('Prompt:', prompt);
+    
     try {
-      const response = await fetch(capturedImage);
-      const blob = await response.blob();
-      
+      if (feature === 'custom' && !prompt.trim()) {
+        throw new Error('Custom prompt is required.');
+      }
+  
       const formData = new FormData();
-      formData.append('image', blob, 'image.jpg');
-      formData.append('feature', selectedFeature);
-      
-      if (selectedFeature === 'custom' && customPrompt.trim()) {
-        formData.append('prompt', customPrompt.trim());
-      }
-      
-      // Add face swap uploads if available
-      if (selectedFeature === 'face-swap') {
-        if (faceSwapUploads.sourceFace) {
-          formData.append('sourceFace', faceSwapUploads.sourceFace);
-        }
-        if (faceSwapUploads.targetFace) {
-          formData.append('targetFace', faceSwapUploads.targetFace);
-        }
-        if (faceSwapUploads.template) {
-          formData.append('template', faceSwapUploads.template);
+      formData.append('image', imageFile);
+      formData.append('feature', feature);
+      // Send the prompt for custom, or an empty string otherwise
+      formData.append('prompt', feature === 'custom' ? prompt.trim() : '');
+  
+      console.log('=== FORMDATA SENT TO SERVER ===');
+      for (const [key, value] of formData.entries()) {
+        if (value instanceof File) {
+          console.log(`${key}: File(${value.name}, ${value.type})`);
+        } else {
+          console.log(`${key}: "${value}"`);
         }
       }
-      
-      const apiUrl = '/api/generate';
-      const result = await fetch(apiUrl, {
+
+      const response = await fetch('/api/generate', {
         method: 'POST',
         body: formData
       });
-      
-      if (!result.ok) {
-        const errorData = await result.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${result.status}`);
+  
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || 'Request failed');
       }
-      
-      const data = await result.json();
-      
-      if (!data.success || !data.generatedImage) {
-        throw new Error('Invalid response from server');
+  
+      const data = await response.json();
+  
+      if (data.success) {
+        setResult(data);
+        setState('result');
+      } else {
+        throw new Error(data.error || 'Generation failed on server');
       }
-      
-      const processedResult: ProcessingResult = {
-        originalImage: capturedImage,
-        generatedImage: data.generatedImage,
-        qrCode: data.qrCode,
-        feature: selectedFeature,
-        prompt: selectedFeature === 'custom' ? customPrompt : undefined
-      };
-      
-      setResult(processedResult);
-      setState('result');
-    } catch (err) {
-      console.error('Processing error:', err);
-      setError(err instanceof Error ? `Failed to process image: ${err.message}` : 'Failed to process image. Please try again.');
-      setState('preview');
-    } finally {
-      setIsProcessing(false);
+    } catch (err: any) {
+      console.error('Error in generateImage:', err);
+      setError(`Generation failed: ${err.message}`);
+      setState('preview'); // Return to preview on error
     }
-  }, [capturedImage, selectedFeature, customPrompt, faceSwapUploads]);
+  };
 
-  const downloadImage = useCallback(() => {
-    if (result?.generatedImage) {
+
+  const downloadImage = useCallback(async () => {
+    if (!result?.generatedImage) return;
+
+    try {
       const link = document.createElement('a');
-      link.download = `assetwise-ai-${selectedFeature}-${Date.now()}.jpg`;
       link.href = result.generatedImage;
+      link.download = `assetwise-ai-${Date.now()}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+    } catch (error) {
+      console.error('Download failed:', error);
+      setError('Could not download image.');
     }
-  }, [result, selectedFeature]);
+  }, [result]);
 
   const reset = useCallback(() => {
     stopCamera();
@@ -284,22 +263,17 @@ function App() {
     setError(null);
     setCustomPrompt('');
     setShowCustomPromptInput(false);
-    setShowFaceSwapModal(false);
-    setFaceSwapUploads({});
     setIsCameraReady(false);
     setIsStartingCamera(false);
     setState('welcome');
   }, [stopCamera]);
 
   const generateDownloadableQR = useCallback(async (imageData: string) => {
-    // Create a special URL that the QR scanner can use
     const downloadData = {
       type: 'image_download',
       data: imageData,
       filename: `ASW-AI-${Date.now()}.jpg`
     };
-    
-    // Create QR code with JSON data
     const qrCodeDataUrl = await QRCode.toDataURL(JSON.stringify(downloadData));
     return qrCodeDataUrl;
   }, []);
@@ -315,19 +289,21 @@ function App() {
         <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <img 
-                src="/assetwise-logo.png" 
-                alt="AssetWise" 
-                className="h-8 w-auto"
-                onError={(e) => {
-                  // Fallback if logo doesn't load
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900">AssetWise AI</h1>
-                <p className="text-xs text-gray-500">Image Generator</p>
-              </div>
+              {!logoError ? (
+                <img 
+                  src="/assetwise_logo.png" 
+                  alt="AssetWise AI" 
+                  className="h-10 w-auto"
+                  onError={() => setLogoError(true)}
+                />
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <div className="flex items-center justify-center h-8 w-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg">
+                    <span className="text-white font-bold text-sm">AW</span>
+                  </div>
+                  <span className="text-lg font-semibold text-gray-900">AssetWise AI</span>
+                </div>
+              )}
             </div>
             {state !== 'welcome' && (
               <button
@@ -346,15 +322,6 @@ function App() {
       {state === 'welcome' && (
         <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 text-center space-y-8">
           <div className="space-y-6">
-            <img 
-              src="/assetwise-logo.png" 
-              alt="AssetWise" 
-              className="h-16 w-auto mx-auto"
-              onError={(e) => {
-                // Fallback if logo doesn't load
-                e.currentTarget.style.display = 'none';
-              }}
-            />
             <div>
               <h2 className="text-3xl font-bold text-gray-900 mb-2">AI Image Generator</h2>
               <p className="text-lg text-gray-600 max-w-md">
@@ -399,7 +366,6 @@ function App() {
       {/* Camera Screen */}
       {state === 'camera' && (
         <div className="relative h-[calc(100vh-80px)] bg-black">
-          {/* Video Preview with mirroring for user display */}
           <div className="relative w-full h-full" onClick={isCameraReady ? captureImage : undefined}>
             <video
               ref={videoRef}
@@ -410,7 +376,6 @@ function App() {
               style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
             />
             
-            {/* Loading overlay */}
             {!isCameraReady && (
               <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
                 <div className="text-white text-center">
@@ -420,7 +385,6 @@ function App() {
               </div>
             )}
             
-            {/* Tap to capture hint */}
             {isCameraReady && (
               <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/50 backdrop-blur-sm px-4 py-2 rounded-full">
                 <p className="text-white text-sm">Tap anywhere to capture</p>
@@ -428,7 +392,6 @@ function App() {
             )}
           </div>
 
-          {/* Feature Selection Bar - Top Center */}
           <div className="absolute top-20 left-0 right-0 px-4">
             <div className="flex justify-center space-x-2">
               {features.map((feature) => {
@@ -437,19 +400,7 @@ function App() {
                 return (
                   <button
                     key={feature.id}
-                    onClick={() => {
-                      setSelectedFeature(feature.id);
-                      if (feature.id === 'custom') {
-                        setShowCustomPromptInput(true);
-                        setShowFaceSwapModal(false);
-                      } else if (feature.id === 'face-swap') {
-                        setShowFaceSwapModal(true);
-                        setShowCustomPromptInput(false);
-                      } else {
-                        setShowCustomPromptInput(false);
-                        setShowFaceSwapModal(false);
-                      }
-                    }}
+                    onClick={() => setSelectedFeature(feature.id)}
                     className={`flex flex-col items-center space-y-1 px-3 py-2 rounded-xl transition-all ${
                       isSelected
                         ? 'bg-assetwise-600 text-white shadow-lg'
@@ -464,76 +415,6 @@ function App() {
             </div>
           </div>
 
-          {/* Custom Prompt Input */}
-          {showCustomPromptInput && selectedFeature === 'custom' && (
-            <div className="absolute top-40 left-4 right-4">
-              <div className="bg-black/80 backdrop-blur-sm rounded-xl p-4">
-                <input
-                  type="text"
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="Enter your custom prompt..."
-                  className="w-full bg-gray-800 text-white px-4 py-3 rounded-lg border border-gray-600 focus:border-assetwise-500 focus:outline-none"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Face Swap Modal */}
-          {showFaceSwapModal && selectedFeature === 'face-swap' && (
-            <div className="absolute top-40 left-4 right-4">
-              <div className="bg-black/90 backdrop-blur-sm rounded-xl p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-white font-semibold">Face Swap Options</h3>
-                  <button
-                    onClick={() => setShowFaceSwapModal(false)}
-                    className="text-gray-400 hover:text-white"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  <p className="text-gray-300 text-sm mb-2">Optional: Upload faces for custom swapping</p>
-                  
-                  <div className="grid grid-cols-1 gap-3">
-                    <div>
-                      <label className="block text-white text-sm mb-1">Source Face</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFaceSwapFileUpload('sourceFace', e.target.files?.[0] || null)}
-                        className="w-full text-white bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-white text-sm mb-1">Target Face</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFaceSwapFileUpload('targetFace', e.target.files?.[0] || null)}
-                        className="w-full text-white bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-white text-sm mb-1">Template (Optional)</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFaceSwapFileUpload('template', e.target.files?.[0] || null)}
-                        className="w-full text-white bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm"
-                      />
-                    </div>
-                  </div>
-                  
-                  <p className="text-gray-400 text-xs">Leave empty to use automatic face detection from captured photo</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Camera Flip Button - Top Right */}
           <div className="absolute top-20 right-4">
             <button
               onClick={flipCamera}
@@ -543,10 +424,8 @@ function App() {
             </button>
           </div>
 
-          {/* Bottom Controls */}
           <div className="absolute bottom-8 left-0 right-0 px-8">
             <div className="flex items-center justify-between">
-              {/* Upload Button - Left */}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="w-12 h-12 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-colors"
@@ -554,7 +433,6 @@ function App() {
                 <Upload className="w-5 h-5" />
               </button>
 
-              {/* Shutter Button - Center */}
               <button
                 onClick={captureImage}
                 disabled={!isCameraReady}
@@ -567,7 +445,6 @@ function App() {
                 <div className={`w-16 h-16 rounded-full ${isCameraReady ? 'bg-white' : 'bg-gray-500'}`}></div>
               </button>
 
-              {/* Empty space for symmetry - Right */}
               <div className="w-12 h-12"></div>
             </div>
           </div>
@@ -590,7 +467,6 @@ function App() {
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Ready to Generate?</h2>
             <p className="text-gray-600">
               {selectedFeature === 'ai-style' && 'Apply AI styling to your image'}
-              {selectedFeature === 'face-swap' && 'Perform advanced face swapping'}
               {selectedFeature === 'custom' && 'Generate with your custom prompt'}
             </p>
           </div>
@@ -604,31 +480,40 @@ function App() {
           </div>
 
           {selectedFeature === 'custom' && (
-            <div className="w-full max-w-sm">
-              <input
-                type="text"
+            <div className="w-full max-w-sm space-y-2">
+              <label className="block text-gray-700 text-sm font-medium">
+                Custom Prompt <span className="text-red-500">*</span>
+              </label>
+              <textarea
                 value={customPrompt}
                 onChange={(e) => setCustomPrompt(e.target.value)}
-                placeholder="Enter your custom prompt..."
-                className="w-full bg-white text-gray-900 px-4 py-3 rounded-lg border border-gray-300 focus:border-assetwise-500 focus:outline-none"
+                placeholder="Describe how you want your image to be transformed..."
+                className="w-full bg-white text-gray-900 px-4 py-3 rounded-lg border border-gray-300 focus:border-assetwise-500 focus:outline-none resize-none"
+                rows={3}
+                required
               />
+              <p className="text-gray-500 text-xs">
+                Be specific about the style, mood, or transformation you want
+              </p>
             </div>
           )}
 
-          {selectedFeature === 'face-swap' && (
-            <div className="w-full max-w-sm bg-white rounded-lg p-4 border border-gray-200">
-              <h3 className="font-semibold text-gray-900 mb-2">Face Swap Settings</h3>
-              <div className="space-y-2 text-sm text-gray-600">
-                <p>• Source Face: {faceSwapUploads.sourceFace ? '✓ Uploaded' : 'Auto-detect from photo'}</p>
-                <p>• Target Face: {faceSwapUploads.targetFace ? '✓ Uploaded' : 'Auto-detect from photo'}</p>
-                <p>• Template: {faceSwapUploads.template ? '✓ Uploaded' : 'Use original background'}</p>
-              </div>
-            </div>
-          )}
-          
           <div className="flex space-x-4">
             <button
-              onClick={generateAIImage}
+              onClick={async () => {
+                if (!capturedImage) return;
+
+                if (selectedFeature === 'custom' && !customPrompt.trim()) {
+                  setError('Please enter a custom prompt before generating.');
+                  return;
+                }
+                
+                const response = await fetch(capturedImage);
+                const blob = await response.blob();
+                const file = new File([blob], 'captured.jpg', { type: blob.type });
+                
+                await generateImage(file);
+              }}
               disabled={isProcessing || (selectedFeature === 'custom' && !customPrompt.trim())}
               className={`px-8 py-4 rounded-full font-semibold text-lg transition-all duration-200 transform shadow-lg flex items-center space-x-2 ${
                 isProcessing || (selectedFeature === 'custom' && !customPrompt.trim())
@@ -637,7 +522,12 @@ function App() {
               }`}
             >
               <Sparkles className="w-5 h-5" />
-              <span>Generate AI Image</span>
+              <span>
+                {selectedFeature === 'custom' && !customPrompt.trim() 
+                  ? 'Enter Prompt First' 
+                  : 'Generate AI Image'
+                }
+              </span>
             </button>
             
             <button
@@ -648,6 +538,14 @@ function App() {
               <span>Retake</span>
             </button>
           </div>
+
+          {error && (
+            <div className="w-full max-w-sm">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-red-600 text-sm">{error}</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -661,7 +559,6 @@ function App() {
             <h2 className="text-3xl font-bold text-gray-900">Processing with AI</h2>
             <p className="text-lg text-gray-600 max-w-md">
               {selectedFeature === 'ai-style' && 'Applying beautiful AI styling to your image...'}
-              {selectedFeature === 'face-swap' && 'Processing advanced face swap...'}
               {selectedFeature === 'custom' && 'Generating image from your custom prompt...'}
             </p>
           </div>
@@ -703,10 +600,8 @@ function App() {
                 alt="AI Generated"
                 className="w-full h-auto rounded-2xl shadow-lg border border-gray-200"
               />
-              {/* AssetWise logo overlay would be added here by the backend */}
             </div>
             
-            {/* QR Code - Only appears after generation */}
             {result.qrCode && (
               <div className="bg-white p-4 rounded-xl mx-auto w-fit shadow-lg border border-gray-200">
                 <img
@@ -714,15 +609,17 @@ function App() {
                   alt="Download QR Code"
                   className="w-32 h-32"
                 />
-                <p className="text-gray-700 text-xs text-center mt-2 font-medium">Scan to download</p>
+                <p className="text-gray-700 text-center text-xs mt-2">
+                  Scan to download
+                </p>
               </div>
             )}
           </div>
-          
-          <div className="flex flex-col sm:flex-row gap-4">
+
+          <div className="flex space-x-4">
             <button
               onClick={downloadImage}
-              className="bg-assetwise-600 text-white px-8 py-4 rounded-full font-semibold hover:bg-assetwise-700 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center space-x-2"
+              className="px-8 py-4 rounded-full font-semibold text-lg bg-assetwise-600 text-white hover:bg-assetwise-700 transition-all duration-200 transform shadow-lg flex items-center space-x-2"
             >
               <Download className="w-5 h-5" />
               <span>Download Image</span>
@@ -730,25 +627,10 @@ function App() {
             
             <button
               onClick={reset}
-              className="bg-gray-200 text-gray-700 px-8 py-4 rounded-full font-semibold hover:bg-gray-300 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center space-x-2"
+              className="bg-gray-200 text-gray-700 px-6 py-4 rounded-full font-semibold hover:bg-gray-300 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center space-x-2"
             >
-              <RefreshCw className="w-5 h-5" />
-              <span>Create Another</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Error Message */}
-      {error && (
-        <div className="fixed bottom-4 left-4 right-4 bg-red-600 text-white px-6 py-4 rounded-lg shadow-lg z-50 max-w-md mx-auto">
-          <div className="flex items-center justify-between">
-            <span className="text-sm pr-2">{error}</span>
-            <button
-              onClick={() => setError(null)}
-              className="text-white hover:text-gray-200 ml-4 text-xl leading-none"
-            >
-              ×
+              <X className="w-5 h-5" />
+              <span>New Image</span>
             </button>
           </div>
         </div>

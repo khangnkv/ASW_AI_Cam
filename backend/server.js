@@ -1,147 +1,269 @@
+// backend/server.js - CONSOLIDATED VERSION
+
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const multer = require('multer');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const QRCode = require('qrcode'); // Add this import
 const { fal } = require("@fal-ai/client");
+const QRCode = require('qrcode');
 require('dotenv').config();
 
-console.log('=== DEBUG ENV LOADING ===');
-console.log('Current working directory:', process.cwd());
-console.log('FAL_KEY from env:', process.env.FAL_KEY);
-console.log('FAL_KEY length:', process.env.FAL_KEY?.length);
-console.log('=========================');
-
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 3000;
+
+console.log('=== ASSETWISE SERVER STARTUP ===');
+console.log('Current working directory:', process.cwd());
+console.log('FAL_KEY configured:', process.env.FAL_KEY ? 'Yes' : 'No');
+console.log('PORT:', port);
+console.log('Server file: backend/server.js');
+console.log('=====================================');
+
+// Configure FAL client
+if (process.env.FAL_KEY) {
+  fal.config({
+    credentials: process.env.FAL_KEY,
+  });
+  console.log('✅ FAL client configured');
+} else {
+  console.error('❌ FAL_KEY not found in environment variables');
+}
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://*.railway.app', 'https://*.up.railway.app'] 
+    : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'],
+  credentials: true
+}));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Configure multer for file uploads
-const storage = multer.memoryStorage();
-const upload = multer({ 
-  storage: storage,
+// Configure multer for file uploads with flexible field names
+const upload = multer({
+  storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+    files: 10 // Allow multiple files
+  },
+  fileFilter: (req, file, cb) => {
+    console.log('=== MULTER FILE FILTER ===');
+    console.log('Field name:', file.fieldname);
+    console.log('Original name:', file.originalname);
+    console.log('Mime type:', file.mimetype);
+    
+    // Accept all image files regardless of field name
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
   }
 });
 
-// Configure FAL client
-fal.config({
-  credentials: process.env.FAL_KEY,
+// Serve static files from the frontend build
+app.use(express.static(path.join(__dirname, '..', 'dist')));
+
+// Debug endpoint to confirm which server is running
+app.get('/debug/server-info', (req, res) => {
+  res.json({
+    serverFile: 'backend/server.js',
+    timestamp: new Date().toISOString(),
+    hasCustomPromptLogic: true,
+    fal_configured: !!process.env.FAL_KEY,
+    port: port,
+    nodeEnv: process.env.NODE_ENV
+  });
 });
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    service: 'assetwise-ai-generator',
+    serverFile: 'backend/server.js',
+    fal_configured: !!process.env.FAL_KEY,
+    version: '2.0.0'
+  });
 });
 
-// Example with AWS S3 or similar
-const uploadToCloud = async (imageBuffer, filename) => {
-  // Upload to AWS S3, Google Cloud Storage, etc.
-  // Return public download URL
-};
-
-// Main image generation endpoint
-app.post('/api/generate', upload.single('image'), async (req, res) => {
+// Helper function to generate QR code
+async function generateQRCode(imageUrl) {
   try {
-    console.log('Received image generation request');
-    
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image provided' });
-    }
+    const qrCodeDataUrl = await QRCode.toDataURL(imageUrl, {
+      width: 256,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      }
+    });
+    return qrCodeDataUrl;
+  } catch (error) {
+    console.error('Error generating QR code:', error);
+    return null;
+  }
+}
 
+// Main image generation endpoint - UPDATED FOR CUSTOM PROMPTS
+app.post('/api/generate', upload.any(), async (req, res) => {
+  try {
+    console.log('=== AssetWise: Received image generation request ===');
+    const { feature, prompt } = req.body;
+    const files = req.files || [];
+    
+    console.log('=== REQUEST DETAILS ===');
+    console.log('Feature:', feature);
+    console.log('Prompt received:', JSON.stringify(prompt));
+    console.log('Prompt type:', typeof prompt);
+    console.log('Prompt length:', prompt?.length || 0);
+    console.log('Uploaded files:', files.map(f => ({ field: f.fieldname, name: f.originalname, size: f.size })));
+    
     if (!process.env.FAL_KEY) {
       return res.status(500).json({ error: 'FAL_KEY not configured' });
     }
 
-    // Convert image to base64
-    const imageBase64 = req.file.buffer.toString('base64');
-    const inputImageDataUrl = `data:image/jpeg;base64,${imageBase64}`; // Renamed to avoid conflict
-    
-    console.log('Submitting job to FAL.ai...');
-    
-    // Use FAL client to submit and wait for result
-    const result = await fal.subscribe("fal-ai/flux-pro/kontext/max", {
-      input: {
-        prompt: "Transform this portrait into a beautiful Studio Ghibli anime style artwork. Keep the person's facial features recognizable but apply the distinctive Ghibli animation art style with soft colors, gentle lighting, and magical atmosphere.",
-        image_url: inputImageDataUrl // Use the renamed variable
-      },
-      logs: true,
-      onQueueUpdate: (update) => {
-        console.log('Queue update:', update);
-      },
+    // Convert files array to object for easier access
+    const filesByField = {};
+    files.forEach(file => {
+      if (!filesByField[file.fieldname]) {
+        filesByField[file.fieldname] = [];
+      }
+      filesByField[file.fieldname].push(file);
     });
-
-    console.log('Result received:', result);
-
-    // Get the generated image URL
-    console.log('Full result structure:', JSON.stringify(result, null, 2));
-    console.log('Images array:', result.data?.images);
-    console.log('First image object:', result.data?.images?.[0]);
-
-    // Get the generated image URL with better error checking
-    const imageUrl = result.data?.images?.[0]?.url;
-
-    if (!imageUrl) {
-      console.error('No image URL found in result');
-      return res.status(500).json({ 
-        error: 'No image URL returned from FAL AI',
-        result: result 
-      });
+    
+    console.log('Files by field:', Object.keys(filesByField));
+    
+    if (!filesByField.image?.[0]) {
+      return res.status(400).json({ error: 'No main image provided' });
     }
 
-    console.log('Image URL:', imageUrl);
+    // Get the main image
+    const mainImage = filesByField.image[0];
+    const imageBase64 = mainImage.buffer.toString('base64');
+    
+    let result;
+    let modelEndpoint;
+    let modelInput;
+    
+    console.log('=== FEATURE PROCESSING ===');
+    console.log('Processing feature:', feature);
+    
+    // Route to different processing based on feature
+    switch (feature) {
+      case 'ai-style':
+        console.log('✅ AI-style: Using default enhancement prompt');
+        modelEndpoint = "fal-ai/flux-pro/kontext/max";
+        modelInput = {
+          prompt: "Transform this portrait into a beautiful stylized artwork with enhanced colors, artistic lighting, and professional quality. Maintain the person's facial features while applying artistic enhancement.",
+          image_url: `data:${mainImage.mimetype};base64,${imageBase64}`
+        };
+        console.log('AI-style prompt:', modelInput.prompt.substring(0, 100) + '...');
+        break;
+        
+      case 'custom':
+        console.log('🎯 Custom: Processing user prompt');
+        
+        // STRICT VALIDATION for custom prompts
+        if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+          console.error('❌ Custom prompt validation failed:', {
+            hasPrompt: !!prompt,
+            promptType: typeof prompt,
+            promptLength: prompt?.length || 0,
+            promptTrimmed: prompt?.trim()?.length || 0
+          });
+          return res.status(400).json({ 
+            error: 'Custom prompt is required for custom generation',
+            details: 'Please provide a prompt describing how you want your image transformed',
+            received: { prompt, type: typeof prompt, length: prompt?.length || 0 }
+          });
+        }
+        
+        const finalPrompt = prompt.trim();
+        console.log('✅ Custom prompt validated');
+        console.log('Final custom prompt:', JSON.stringify(finalPrompt));
+        console.log('Custom prompt length:', finalPrompt.length);
+        
+        modelEndpoint = "fal-ai/flux-pro/kontext/max";
+        modelInput = {
+          prompt: finalPrompt, // Use the user's exact prompt
+          image_url: `data:${mainImage.mimetype};base64,${imageBase64}`
+        };
+        
+        console.log('🎯 USING CUSTOM PROMPT:', finalPrompt);
+        break;
+        
+      default:
+        throw new Error(`Unknown feature: ${feature}`);
+    }
+    
+    console.log('=== FAL.AI SUBMISSION ===');
+    console.log('Endpoint:', modelEndpoint);
+    console.log('Prompt being sent to FAL:', modelInput.prompt);
+    
+    // Submit to FAL.ai
+    result = await fal.subscribe(modelEndpoint, {
+      input: modelInput,
+      logs: true,
+      onQueueUpdate: (update) => {
+        console.log('Queue update:', update.status);
+        if (update.status === "IN_PROGRESS" && update.logs) {
+          update.logs.map((log) => log.message).forEach(console.log);
+        }
+      },
+    });
+
+    console.log('Result received:', {
+      requestId: result.requestId,
+      status: result.status,
+      hasData: !!result.data,
+      hasImages: !!(result.data?.images || result.images)
+    });
+
+    // Handle different response formats from FAL.ai
+    let generatedImageUrl;
+    if (result.data?.images?.[0]?.url) {
+      generatedImageUrl = result.data.images[0].url;
+    } else if (result.images?.[0]?.url) {
+      generatedImageUrl = result.images[0].url;
+    } else if (result.data?.image_url) {
+      generatedImageUrl = result.data.image_url;
+    } else {
+      throw new Error('No generated image found in response');
+    }
+
+    console.log('Generated image URL found');
     
     // Download and convert to base64
-    console.log('Downloading image from FAL.media...');
-    const imageResponse = await axios.get(imageUrl, {
+    const imageResponse = await axios.get(generatedImageUrl, {
       responseType: 'arraybuffer',
-      timeout: 30000, // 30 second timeout
-      maxContentLength: 50 * 1024 * 1024, // 50MB max
+      timeout: 30000
     });
-    
-    console.log('Image downloaded, size:', imageResponse.data.length, 'bytes');
     
     const generatedImageBase64 = Buffer.from(imageResponse.data).toString('base64');
     const generatedImageDataUrl = `data:image/jpeg;base64,${generatedImageBase64}`;
     
-    console.log('Base64 conversion complete, length:', generatedImageBase64.length);
+    // Generate QR code
+    console.log('Generating QR code...');
+    const qrCode = await generateQRCode(generatedImageUrl);
     
-    // Generate unique image ID first
-    const imageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    console.log('✅ AssetWise: Image processing completed successfully');
+    console.log('Used prompt:', modelInput.prompt.substring(0, 100) + '...');
     
-    // Store the image temporarily for download
-    if (!global.imageStore) global.imageStore = {};
-    global.imageStore[imageId] = generatedImageBase64;
-    
-    // Solution: Create QR code with direct download link
-    console.log('Generating QR code with direct download...');
-    
-    // QR code points directly to the download endpoint
-    const directDownloadUrl = `${req.protocol}://${req.get('host')}/download/${imageId}.jpg`;
-    const qrCodeDataUrl = await QRCode.toDataURL(directDownloadUrl);
-    
-    const response = {
+    res.json({
       success: true,
       generatedImage: generatedImageDataUrl,
-      qrCode: qrCodeDataUrl,
-      downloadUrl: directDownloadUrl,
-      imageId: imageId,
-      message: 'Image processed successfully'
-    };
-    
-    console.log('Sending response to frontend...');
-    res.setHeader('Content-Type', 'application/json');
-    res.json(response);
+      publicImageUrl: generatedImageUrl,
+      qrCode: qrCode,
+      feature: feature,
+      promptUsed: modelInput.prompt, // Add this for debugging
+      timestamp: new Date().toISOString(),
+      message: 'AssetWise AI processing completed successfully'
+    });
 
   } catch (error) {
     console.error('Error processing image:', error);
-    console.error('Error stack:', error.stack);
     res.status(500).json({
       error: 'Failed to process image',
       details: error.message
@@ -149,345 +271,14 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
   }
 });
 
-// Add a mobile-friendly download page
-app.get('/download-page/:imageId', (req, res) => {
-  try {
-    const imageId = req.params.imageId;
-    
-    if (!global.imageStore || !global.imageStore[imageId]) {
-      return res.status(404).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Image Not Found</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-        </head>
-        <body style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
-          <h1>Image Not Found</h1>
-          <p>This image may have expired or the link is invalid.</p>
-        </body>
-        </html>
-      `);
-    }
-    
-    const imageBase64 = global.imageStore[imageId];
-    
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Download Your AI Generated Image</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-          body { 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            padding: 20px; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            margin: 0;
-          }
-          .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background: rgba(255,255,255,0.1);
-            padding: 20px;
-            border-radius: 15px;
-            backdrop-filter: blur(10px);
-          }
-          img { 
-            max-width: 100%; 
-            height: auto; 
-            margin: 20px 0; 
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-          }
-          .download-btn { 
-            background: #28a745; 
-            color: white; 
-            padding: 15px 30px; 
-            text-decoration: none; 
-            border-radius: 25px; 
-            display: inline-block; 
-            margin: 10px; 
-            font-weight: bold;
-            box-shadow: 0 4px 15px rgba(40,167,69,0.3);
-            transition: all 0.3s ease;
-          }
-          .download-btn:hover {
-            background: #218838;
-            transform: translateY(-2px);
-          }
-          .share-btn {
-            background: #007bff;
-            color: white;
-            padding: 15px 30px;
-            text-decoration: none;
-            border-radius: 25px;
-            display: inline-block;
-            margin: 10px;
-            font-weight: bold;
-            box-shadow: 0 4px 15px rgba(0,123,255,0.3);
-            transition: all 0.3s ease;
-          }
-          h1 { margin-bottom: 10px; }
-          .subtitle { opacity: 0.8; margin-bottom: 30px; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>🎨 Your AI Generated Image</h1>
-          <p class="subtitle">Studio Ghibli Style Portrait</p>
-          
-          <img src="data:image/jpeg;base64,${imageBase64}" alt="Generated Ghibli Style Image">
-          
-          <div>
-            <a href="data:image/jpeg;base64,${imageBase64}" download="ghibli-portrait-${imageId}.jpg" class="download-btn">
-              📱 Download to Device
-            </a>
-            <br>
-            <a href="/download/${imageId}.jpg" class="download-btn">
-              💾 Direct Download
-            </a>
-          </div>
-          
-          <div style="margin-top: 30px;">
-            <button onclick="shareImage()" class="share-btn">📤 Share</button>
-          </div>
-        </div>
-        
-        <script>
-          function shareImage() {
-            if (navigator.share) {
-              // Convert base64 to blob for sharing
-              const base64Data = "${imageBase64}";
-              const byteCharacters = atob(base64Data);
-              const byteNumbers = new Array(byteCharacters.length);
-              for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-              }
-              const byteArray = new Uint8Array(byteNumbers);
-              const blob = new Blob([byteArray], { type: 'image/jpeg' });
-              const file = new File([blob], 'ghibli-portrait.jpg', { type: 'image/jpeg' });
-              
-              navigator.share({
-                title: 'My AI Generated Ghibli Portrait',
-                text: 'Check out my Studio Ghibli style AI portrait!',
-                files: [file]
-              });
-            } else {
-              // Fallback: copy link to clipboard
-              navigator.clipboard.writeText(window.location.href).then(() => {
-                alert('Link copied to clipboard!');
-              });
-            }
-          }
-          
-          // Auto-trigger download on mobile devices
-          if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-            document.addEventListener('DOMContentLoaded', function() {
-              // Show instructions for mobile users
-              const instructions = document.createElement('div');
-              instructions.innerHTML = '<p style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 20px 0;">📱 <strong>Mobile Tip:</strong> Tap "Download to Device" to save the image to your phone!</p>';
-              document.querySelector('.container').appendChild(instructions);
-            });
-          }
-        </script>
-      </body>
-      </html>
-    `;
-    
-    res.send(html);
-    
-  } catch (error) {
-    console.error('Error serving download page:', error);
-    res.status(500).send('Error loading download page');
-  }
-});
-
-// Auto-download page that immediately triggers download
-app.get('/auto-download/:imageId', (req, res) => {
-  try {
-    const imageId = req.params.imageId;
-    
-    if (!global.imageStore || !global.imageStore[imageId]) {
-      return res.status(404).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Image Not Found</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-        </head>
-        <body style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
-          <h1>Image Not Found</h1>
-          <p>This image may have expired or the link is invalid.</p>
-        </body>
-        </html>
-      `);
-    }
-    
-    const imageBase64 = global.imageStore[imageId];
-    
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Downloading Your AI Image</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-          body { 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            padding: 20px; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            margin: 0;
-          }
-          .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background: rgba(255,255,255,0.1);
-            padding: 20px;
-            border-radius: 15px;
-            backdrop-filter: blur(10px);
-          }
-          .spinner {
-            border: 3px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top: 3px solid #fff;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-          }
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          .download-btn { 
-            background: #28a745; 
-            color: white; 
-            padding: 15px 30px; 
-            text-decoration: none; 
-            border-radius: 25px; 
-            display: inline-block; 
-            margin: 10px; 
-            font-weight: bold;
-            box-shadow: 0 4px 15px rgba(40,167,69,0.3);
-            transition: all 0.3s ease;
-          }
-          img { 
-            max-width: 100%; 
-            height: auto; 
-            margin: 20px 0; 
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>🎨 Downloading Your AI Image</h1>
-          <div class="spinner"></div>
-          <p id="status">Preparing your download...</p>
-          
-          <img src="data:image/jpeg;base64,${imageBase64}" alt="Generated Ghibli Style Image" style="display:none;" id="previewImg">
-          
-          <div id="fallback" style="display:none;">
-            <p>If download doesn't start automatically:</p>
-            <a href="data:image/jpeg;base64,${imageBase64}" download="ghibli-portrait-${imageId}.jpg" class="download-btn" id="manualDownload">
-              📱 Download Manually
-            </a>
-            <a href="/download/${imageId}.jpg" class="download-btn">
-              💾 Alternative Download
-            </a>
-          </div>
-        </div>
-        
-        <script>
-          // Function to trigger download
-          function triggerDownload() {
-            // Method 1: Create invisible link and click it
-            const link = document.createElement('a');
-            link.href = 'data:image/jpeg;base64,${imageBase64}';
-            link.download = 'ghibli-portrait-${imageId}.jpg';
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            // Show success message
-            document.getElementById('status').textContent = 'Download started! Check your downloads folder.';
-            document.getElementById('previewImg').style.display = 'block';
-            
-            // Show fallback options after a delay
-            setTimeout(() => {
-              document.getElementById('fallback').style.display = 'block';
-              document.querySelector('.spinner').style.display = 'none';
-            }, 2000);
-          }
-          
-          // Auto-trigger download when page loads
-          document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(triggerDownload, 1000); // Small delay for better UX
-          });
-          
-          // Fallback for mobile devices that might not support auto-download
-          window.addEventListener('load', function() {
-            setTimeout(() => {
-              if (!document.hidden) {
-                // If page is still visible after 3 seconds, show manual options
-                document.getElementById('fallback').style.display = 'block';
-                document.getElementById('status').textContent = 'Tap the button below to download:';
-                document.querySelector('.spinner').style.display = 'none';
-              }
-            }, 3000);
-          });
-        </script>
-      </body>
-      </html>
-    `;
-    
-    res.send(html);
-    
-  } catch (error) {
-    console.error('Error serving auto-download page:', error);
-    res.status(500).send('Error loading download page');
-  }
-});
-
-// Keep your existing download endpoint
-app.get('/download/:filename', (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const imageId = filename.replace('.jpg', '');
-    
-    console.log(`Download requested for imageId: ${imageId}`);
-    
-    if (!global.imageStore || !global.imageStore[imageId]) {
-      console.log(`Image not found for ID: ${imageId}`);
-      return res.status(404).json({ error: 'Image not found or expired' });
-    }
-    
-    const imageBase64 = global.imageStore[imageId];
-    const imageBuffer = Buffer.from(imageBase64, 'base64');
-    
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Content-Disposition', `attachment; filename="ghibli-portrait-${filename}"`);
-    res.setHeader('Content-Length', imageBuffer.length);
-    
-    console.log(`Serving download for ${filename}, size: ${imageBuffer.length} bytes`);
-    res.send(imageBuffer);
-    
-  } catch (error) {
-    console.error('Error serving download:', error);
-    res.status(500).json({ error: 'Failed to serve image' });
-  }
+// Serve the React app for all other routes (SPA routing)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
 });
 
 // Error handling middleware
 app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
+  console.error('AssetWise: Unhandled error:', error);
   res.status(500).json({
     error: 'Internal server error',
     details: error.message
@@ -496,10 +287,13 @@ app.use((error, req, res, next) => {
 
 // Start server
 app.listen(port, '0.0.0.0', () => {
-  console.log(`Ghibli Portrait Backend running on port ${port}`);
-  console.log(`Local: http://localhost:${port}/health`);
-  console.log(`Network: http://0.0.0.0:${port}/health`);
-  console.log(`FAL_KEY configured: ${process.env.FAL_KEY ? 'Yes' : 'No'}`);
+  console.log(`🚀 AssetWise AI Generator running on port ${port}`);
+  console.log(`📱 Frontend: http://localhost:${port}`);
+  console.log(`🔧 API: http://localhost:${port}/api`);
+  console.log(`❤️ Health: http://localhost:${port}/health`);
+  console.log(`🔍 Debug: http://localhost:${port}/debug/server-info`);
+  console.log(`🔑 FAL_KEY configured: ${process.env.FAL_KEY ? 'Yes' : 'No'}`);
+  console.log(`📁 Server file: backend/server.js`);
   if (process.env.FAL_KEY) {
     console.log(`Using FAL_KEY starting with: ${process.env.FAL_KEY.substring(0, 5)}...`);
   }
