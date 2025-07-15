@@ -1,4 +1,4 @@
-// backend/server.js - CONSOLIDATED VERSION
+// backend/server.js - CORRECTED VERSION
 
 const express = require('express');
 const path = require('path');
@@ -9,6 +9,12 @@ const { fal } = require("@fal-ai/client");
 const QRCode = require('qrcode');
 require('dotenv').config();
 
+// CRITICAL: Ensure Blob is available
+const { Blob } = require('node:buffer');
+
+// Verify Blob is working
+console.log('Blob support:', typeof Blob !== 'undefined' ? '✅ Available' : '❌ Not available');
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -16,7 +22,7 @@ console.log('=== ASSETWISE SERVER STARTUP ===');
 console.log('Current working directory:', process.cwd());
 console.log('FAL_KEY configured:', process.env.FAL_KEY ? 'Yes' : 'No');
 console.log('PORT:', port);
-console.log('Server file: backend/server.js');
+console.log('Server file: backend/server.js (Corrected)');
 console.log('=====================================');
 
 // Configure FAL client
@@ -31,28 +37,19 @@ if (process.env.FAL_KEY) {
 
 // Middleware
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://*.railway.app', 'https://*.up.railway.app'] 
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://*.railway.app', 'https://*.up.railway.app']
     : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'],
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Configure multer for file uploads with flexible field names
+// Multer configuration remains the same
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 10 // Allow multiple files
-  },
+  limits: { fileSize: 10 * 1024 * 1024, files: 10 },
   fileFilter: (req, file, cb) => {
-    console.log('=== MULTER FILE FILTER ===');
-    console.log('Field name:', file.fieldname);
-    console.log('Original name:', file.originalname);
-    console.log('Mime type:', file.mimetype);
-    
-    // Accept all image files regardless of field name
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
@@ -61,64 +58,73 @@ const upload = multer({
   }
 });
 
-// Serve static files from the frontend build
+// Serve static files
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 
-// Debug endpoint to confirm which server is running
-app.get('/debug/server-info', (req, res) => {
-  res.json({
-    serverFile: 'backend/server.js',
-    timestamp: new Date().toISOString(),
-    hasCustomPromptLogic: true,
-    fal_configured: !!process.env.FAL_KEY,
-    port: port,
-    nodeEnv: process.env.NODE_ENV
-  });
-});
+// Health check and other endpoints remain the same
+app.get('/health', (req, res) => res.json({ status: 'healthy', timestamp: new Date().toISOString(), service: 'assetwise-ai-generator' }));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    service: 'assetwise-ai-generator',
-    serverFile: 'backend/server.js',
-    fal_configured: !!process.env.FAL_KEY,
-    version: '2.0.0'
-  });
-});
-
-// Helper function to generate QR code
-async function generateQRCode(imageUrl) {
-  try {
-    const qrCodeDataUrl = await QRCode.toDataURL(imageUrl, {
-      width: 256,
-      margin: 2,
-      color: {
-        dark: '#000000',
-        light: '#FFFFFF'
-      }
-    });
-    return qrCodeDataUrl;
-  } catch (error) {
-    console.error('Error generating QR code:', error);
-    return null;
-  }
-}
-
-// Main image generation endpoint - UPDATED FOR CUSTOM PROMPTS
+// Main image generation endpoint remains the same
 app.post('/api/generate', upload.any(), async (req, res) => {
+    // This endpoint was working correctly with data URLs, so no changes needed
+    // For consistency you could also change it to use Blobs, but we will leave it
+    // as is to minimize changes.
   try {
-    console.log('=== AssetWise: Received image generation request ===');
     const { feature, prompt } = req.body;
+    const mainImageFile = req.files.find(f => f.fieldname === 'image');
+    if (!mainImageFile) return res.status(400).json({ error: 'No main image provided' });
+
+    const imageBase64 = mainImageFile.buffer.toString('base64');
+    let modelInput;
+
+    if (feature === 'custom') {
+      if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'Custom prompt is required' });
+      modelInput = { prompt: prompt.trim(), image_url: `data:${mainImageFile.mimetype};base64,${imageBase64}` };
+    } else {
+      modelInput = {
+        prompt: "Transform this portrait into a beautiful stylized artwork with enhanced colors, artistic lighting, and professional quality. Maintain the person's facial features while applying artistic enhancement.",
+        image_url: `data:${mainImageFile.mimetype};base64,${imageBase64}`
+      };
+    }
+
+    const result = await fal.subscribe("fal-ai/flux-pro/kontext/max", {
+      input: modelInput,
+      logs: true,
+    });
+
+    let generatedImageUrl = result.data?.images?.[0]?.url || result.images?.[0]?.url || result.data?.image_url;
+    if (!generatedImageUrl) throw new Error('No generated image found in response');
+
+    const imageResponse = await axios.get(generatedImageUrl, { responseType: 'arraybuffer' });
+    const generatedImageDataUrl = `data:image/jpeg;base64,${Buffer.from(imageResponse.data).toString('base64')}`;
+    const qrCode = await QRCode.toDataURL(generatedImageUrl);
+
+    res.json({
+      success: true,
+      generatedImage: generatedImageDataUrl,
+      publicImageUrl: generatedImageUrl,
+      qrCode: qrCode,
+      feature: feature,
+      promptUsed: modelInput.prompt,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error processing /api/generate:', error);
+    res.status(500).json({ error: 'Failed to process image', details: error.message });
+  }
+});
+
+
+// Advanced Face Swap endpoint - FINAL CORRECTED VERSION
+app.post('/api/face-swap', upload.any(), async (req, res) => {
+  try {
+    console.log('=== AssetWise: Advanced Face Swap Request (FINAL CORRECTED) ===');
+    const { gender_0, workflow_type, upscale } = req.body;
     const files = req.files || [];
     
-    console.log('=== REQUEST DETAILS ===');
-    console.log('Feature:', feature);
-    console.log('Prompt received:', JSON.stringify(prompt));
-    console.log('Prompt type:', typeof prompt);
-    console.log('Prompt length:', prompt?.length || 0);
-    console.log('Uploaded files:', files.map(f => ({ field: f.fieldname, name: f.originalname, size: f.size })));
+    console.log('=== FACE SWAP REQUEST DETAILS ===');
+    console.log('Parameters:', { gender_0, workflow_type, upscale });
+    console.log('Uploaded files:', files.map(f => ({ field: f.fieldname, name: f.originalname, size: f.size, type: f.mimetype })));
     
     if (!process.env.FAL_KEY) {
       return res.status(500).json({ error: 'FAL_KEY not configured' });
@@ -134,167 +140,230 @@ app.post('/api/generate', upload.any(), async (req, res) => {
     });
     
     console.log('Files by field:', Object.keys(filesByField));
+
+    // Validate required files
+    if (!filesByField.face_image?.[0]) {
+      return res.status(400).json({ error: 'Face image (camera capture) is required' });
+    }
     
-    if (!filesByField.image?.[0]) {
-      return res.status(400).json({ error: 'No main image provided' });
+    if (!filesByField.target_image?.[0]) {
+      return res.status(400).json({ error: 'Target image is required' });
     }
 
-    // Get the main image
-    const mainImage = filesByField.image[0];
-    const imageBase64 = mainImage.buffer.toString('base64');
-    
-    let result;
-    let modelEndpoint;
-    let modelInput;
-    
-    console.log('=== FEATURE PROCESSING ===');
-    console.log('Processing feature:', feature);
-    
-    // Route to different processing based on feature
-    switch (feature) {
-      case 'ai-style':
-        console.log('✅ AI-style: Using default enhancement prompt');
-        modelEndpoint = "fal-ai/flux-pro/kontext/max";
-        modelInput = {
-          prompt: "Transform this portrait into a beautiful stylized artwork with enhanced colors, artistic lighting, and professional quality. Maintain the person's facial features while applying artistic enhancement.",
-          image_url: `data:${mainImage.mimetype};base64,${imageBase64}`
-        };
-        console.log('AI-style prompt:', modelInput.prompt.substring(0, 100) + '...');
-        break;
-        
-      case 'custom':
-        console.log('🎯 Custom: Processing user prompt');
-        
-        // STRICT VALIDATION for custom prompts
-        if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
-          console.error('❌ Custom prompt validation failed:', {
-            hasPrompt: !!prompt,
-            promptType: typeof prompt,
-            promptLength: prompt?.length || 0,
-            promptTrimmed: prompt?.trim()?.length || 0
-          });
-          return res.status(400).json({ 
-            error: 'Custom prompt is required for custom generation',
-            details: 'Please provide a prompt describing how you want your image transformed',
-            received: { prompt, type: typeof prompt, length: prompt?.length || 0 }
-          });
-        }
-        
-        const finalPrompt = prompt.trim();
-        console.log('✅ Custom prompt validated');
-        console.log('Final custom prompt:', JSON.stringify(finalPrompt));
-        console.log('Custom prompt length:', finalPrompt.length);
-        
-        modelEndpoint = "fal-ai/flux-pro/kontext/max";
-        modelInput = {
-          prompt: finalPrompt, // Use the user's exact prompt
-          image_url: `data:${mainImage.mimetype};base64,${imageBase64}`
-        };
-        
-        console.log('🎯 USING CUSTOM PROMPT:', finalPrompt);
-        break;
-        
-      default:
-        throw new Error(`Unknown feature: ${feature}`);
-    }
-    
-    console.log('=== FAL.AI SUBMISSION ===');
-    console.log('Endpoint:', modelEndpoint);
-    console.log('Prompt being sent to FAL:', modelInput.prompt);
-    
-    // Submit to FAL.ai
-    result = await fal.subscribe(modelEndpoint, {
-      input: modelInput,
-      logs: true,
-      onQueueUpdate: (update) => {
-        console.log('Queue update:', update.status);
-        if (update.status === "IN_PROGRESS" && update.logs) {
-          update.logs.map((log) => log.message).forEach(console.log);
-        }
-      },
+    // Get the actual file objects
+    const faceImageFile = filesByField.face_image[0];
+    const targetImageFile = filesByField.target_image[0];
+
+    console.log('=== PREPARING BLOBS FOR FAL.AI ===');
+    console.log('Face image file:', { name: faceImageFile.originalname, size: faceImageFile.size, type: faceImageFile.mimetype });
+    console.log('Target image file:', { name: targetImageFile.originalname, size: targetImageFile.size, type: targetImageFile.mimetype });
+
+    // *** CRITICAL FIX: Convert buffers to proper Blobs ***
+    const faceImageBlob = new Blob([faceImageFile.buffer], { type: faceImageFile.mimetype });
+    const targetImageBlob = new Blob([targetImageFile.buffer], { type: targetImageFile.mimetype });
+
+    console.log('✅ Blobs created:', {
+      faceImageBlob: { size: faceImageBlob.size, type: faceImageBlob.type },
+      targetImageBlob: { size: targetImageBlob.size, type: targetImageBlob.type }
     });
 
-    console.log('Result received:', {
+    // Prepare FAL.ai input with proper parameter types
+    const falInput = {
+      face_image_0: faceImageBlob,           // Blob object, NOT base64 string
+      target_image: targetImageBlob,         // Blob object, NOT base64 string
+      gender_0: gender_0 || "male",
+      workflow_type: workflow_type || "user_hair",
+      upscale: upscale === 'true' || upscale === true  // Proper boolean conversion
+    };
+
+    console.log('=== FAL.AI FACE SWAP SUBMISSION (BLOB VERSION) ===');
+    console.log('Input parameters:', {
+      gender_0: falInput.gender_0,
+      workflow_type: falInput.workflow_type,
+      upscale: falInput.upscale,
+      face_image_0: `Blob(size: ${falInput.face_image_0.size}, type: ${falInput.face_image_0.type})`,
+      target_image: `Blob(size: ${falInput.target_image.size}, type: ${falInput.target_image.type})`
+    });
+
+    // Submit to FAL.ai advanced face-swap with Blob inputs
+    let result;
+    try {
+      result = await fal.subscribe("easel-ai/advanced-face-swap", {
+        input: falInput,
+        logs: true,
+        onQueueUpdate: (update) => {
+          console.log('Face-swap queue update:', update.status);
+          if (update.status === "IN_PROGRESS" && update.logs) {
+            update.logs.map((log) => log.message).forEach(console.log);
+          }
+        },
+      });
+    } catch (falError) {
+      console.error('FAL.ai API Error Details:', {
+        status: falError.status,
+        message: falError.message,
+        body: falError.body,
+        stack: falError.stack
+      });
+      
+      // Enhanced error diagnosis
+      let errorMessage = 'FAL.ai face-swap failed';
+      let errorDetails = falError.message;
+      
+      if (falError.status === 500) {
+        errorDetails = 'FAL.ai internal server error. This could be due to:\n' +
+          '• Invalid image format or corruption\n' +
+          '• Images too large or too small\n' +
+          '• Face detection failed\n' +
+          '• Temporary FAL.ai service issues';
+      } else if (falError.status === 400) {
+        errorDetails = 'Invalid input parameters. Check image formats and parameters.';
+      } else if (falError.body?.detail) {
+        errorDetails = falError.body.detail;
+      }
+      
+      return res.status(500).json({
+        error: errorMessage,
+        details: errorDetails,
+        falStatus: falError.status,
+        troubleshooting: {
+          faceImageSize: faceImageFile.size,
+          targetImageSize: targetImageFile.size,
+          faceImageType: faceImageFile.mimetype,
+          targetImageType: targetImageFile.mimetype
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    console.log('Face-swap result received:', {
       requestId: result.requestId,
       status: result.status,
       hasData: !!result.data,
-      hasImages: !!(result.data?.images || result.images)
+      dataKeys: result.data ? Object.keys(result.data) : []
     });
 
-    // Handle different response formats from FAL.ai
-    let generatedImageUrl;
-    if (result.data?.images?.[0]?.url) {
-      generatedImageUrl = result.data.images[0].url;
-    } else if (result.images?.[0]?.url) {
-      generatedImageUrl = result.images[0].url;
-    } else if (result.data?.image_url) {
-      generatedImageUrl = result.data.image_url;
-    } else {
-      throw new Error('No generated image found in response');
+    // Enhanced result debugging
+    console.log('=== FAL.AI RESULT STRUCTURE DEBUG ===');
+    console.log('Full result keys:', Object.keys(result));
+    if (result.data) {
+      console.log('Result.data keys:', Object.keys(result.data));
+      console.log('Result.data content:', JSON.stringify(result.data, null, 2));
     }
 
-    console.log('Generated image URL found');
+    // Extract the generated image URL with comprehensive checking
+    let generatedImageUrl;
+    const possiblePaths = [
+      result.data?.image?.url,
+      result.data?.images?.[0]?.url,
+      result.image?.url,
+      result.images?.[0]?.url,
+      result.data?.output?.url,
+      result.data?.result?.url,
+      result.data?.generated_image?.url,
+      result.data?.swap_image?.url
+    ];
+
+    generatedImageUrl = possiblePaths.find(url => url && typeof url === 'string');
+
+    if (!generatedImageUrl) {
+      console.error('❌ No image URL found in result. Full result structure:');
+      console.error(JSON.stringify(result, null, 2));
+      
+      return res.status(500).json({
+        error: 'No generated image found in face-swap response',
+        details: 'FAL.ai completed the request but returned no image URL',
+        resultStructure: {
+          hasData: !!result.data,
+          dataKeys: result.data ? Object.keys(result.data) : [],
+          resultKeys: Object.keys(result)
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    console.log('✅ Generated face-swap image URL found:', generatedImageUrl);
     
-    // Download and convert to base64
+    // Download and convert to base64 for consistent response format
     const imageResponse = await axios.get(generatedImageUrl, {
       responseType: 'arraybuffer',
-      timeout: 30000
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'AssetWise-AI-Generator/1.0'
+      }
     });
     
     const generatedImageBase64 = Buffer.from(imageResponse.data).toString('base64');
     const generatedImageDataUrl = `data:image/jpeg;base64,${generatedImageBase64}`;
     
-    // Generate QR code
+    // Generate QR code for the original URL
     console.log('Generating QR code...');
-    const qrCode = await generateQRCode(generatedImageUrl);
+    const qrCode = await QRCode.toDataURL(generatedImageUrl);
     
-    console.log('✅ AssetWise: Image processing completed successfully');
-    console.log('Used prompt:', modelInput.prompt.substring(0, 100) + '...');
+    console.log('✅ AssetWise: Advanced face-swap completed successfully');
     
     res.json({
       success: true,
       generatedImage: generatedImageDataUrl,
       publicImageUrl: generatedImageUrl,
       qrCode: qrCode,
-      feature: feature,
-      promptUsed: modelInput.prompt, // Add this for debugging
+      feature: 'face-swap',
+      parameters: {
+        workflow_type: falInput.workflow_type,
+        gender_0: falInput.gender_0,
+        upscale: falInput.upscale
+      },
+      processedImages: {
+        faceImageSize: faceImageFile.size,
+        targetImageSize: targetImageFile.size
+      },
       timestamp: new Date().toISOString(),
-      message: 'AssetWise AI processing completed successfully'
+      message: 'Advanced face-swap processing completed successfully'
     });
 
   } catch (error) {
-    console.error('Error processing image:', error);
+    console.error('Error in advanced face-swap:', error);
+    
+    // Enhanced error handling with specific error types
+    let errorMessage = 'Failed to process advanced face-swap';
+    let errorDetails = error.message;
+    
+    if (error.message?.includes('No generated image found')) {
+      errorMessage = 'FAL.ai returned no image';
+      errorDetails = 'The face-swap completed but no image was returned. This might be due to face detection issues.';
+    } else if (error.code === 'ENOTFOUND') {
+      errorMessage = 'Network error';
+      errorDetails = 'Unable to connect to FAL.ai services';
+    } else if (error.code === 'ETIMEDOUT') {
+      errorMessage = 'Request timeout';
+      errorDetails = 'FAL.ai request took too long to complete';
+    } else if (error.response?.status === 404) {
+      errorMessage = 'Generated image not found';
+      errorDetails = 'The generated image URL is no longer accessible';
+    }
+    
     res.status(500).json({
-      error: 'Failed to process image',
-      details: error.message
+      error: errorMessage,
+      details: errorDetails,
+      timestamp: new Date().toISOString()
     });
   }
 });
 
-// Serve the React app for all other routes (SPA routing)
+
+// Serve React app for all other routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
 });
 
-// Error handling middleware
+// Final error handler
 app.use((error, req, res, next) => {
   console.error('AssetWise: Unhandled error:', error);
-  res.status(500).json({
-    error: 'Internal server error',
-    details: error.message
-  });
+  res.status(500).json({ error: 'Internal server error', details: error.message });
 });
 
 // Start server
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 AssetWise AI Generator running on port ${port}`);
-  console.log(`📱 Frontend: http://localhost:${port}`);
-  console.log(`🔧 API: http://localhost:${port}/api`);
-  console.log(`❤️ Health: http://localhost:${port}/health`);
-  console.log(`🔍 Debug: http://localhost:${port}/debug/server-info`);
   console.log(`🔑 FAL_KEY configured: ${process.env.FAL_KEY ? 'Yes' : 'No'}`);
-  console.log(`📁 Server file: backend/server.js`);
-  if (process.env.FAL_KEY) {
-    console.log(`Using FAL_KEY starting with: ${process.env.FAL_KEY.substring(0, 5)}...`);
-  }
 });

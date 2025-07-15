@@ -5,7 +5,7 @@ import { Camera, Upload, Download, RefreshCw, Sparkles, ArrowLeft, Palette, Rota
 import QRCode from 'qrcode';
 
 type AppState = 'welcome' | 'camera' | 'preview' | 'processing' | 'result';
-type FeatureType = 'ai-style' | 'custom';
+type FeatureType = 'ai-style' | 'custom' | 'face-swap';
 
 interface ProcessingResult {
   generatedImage: string;
@@ -35,6 +35,12 @@ const features: FeatureOption[] = [
     name: 'Custom',
     icon: Type,
     description: 'Your own prompt'
+  },
+  {
+    id: 'face-swap',
+    name: 'Face Swap',
+    icon: Users,
+    description: 'Advanced face replacement'
   }
 ];
 
@@ -51,6 +57,13 @@ function App() {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [showCustomPromptInput, setShowCustomPromptInput] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  const [showFaceSwapModal, setShowFaceSwapModal] = useState(false);
+  const [targetImage, setTargetImage] = useState<File | null>(null);
+  const [faceSwapOptions, setFaceSwapOptions] = useState({
+    gender_0: 'male',
+    workflow_type: 'user_hair',
+    upscale: true
+  });
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -239,6 +252,56 @@ function App() {
     }
   };
 
+  const generateFaceSwap = async (faceImageFile: File, targetImageFile: File) => {
+    setState('processing');
+    setError(null);
+
+    console.log('=== FACE SWAP GENERATION ===');
+    console.log('Face image:', faceImageFile.name);
+    console.log('Target image:', targetImageFile.name);
+    console.log('Options:', faceSwapOptions);
+    
+    try {
+      const formData = new FormData();
+      formData.append('face_image', faceImageFile);
+      formData.append('target_image', targetImageFile);
+      formData.append('gender_0', faceSwapOptions.gender_0);
+      formData.append('workflow_type', faceSwapOptions.workflow_type);
+      formData.append('upscale', String(faceSwapOptions.upscale));
+
+      console.log('=== FACE SWAP FORMDATA ===');
+      for (const [key, value] of formData.entries()) {
+        if (value instanceof File) {
+          console.log(`${key}: File(${value.name}, ${value.type})`);
+        } else {
+          console.log(`${key}: "${value}"`);
+        }
+      }
+
+      const response = await fetch('/api/face-swap', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || 'Face swap failed');
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        setResult(data);
+        setState('result');
+      } else {
+        throw new Error(data.error || 'Face swap failed on server');
+      }
+    } catch (err: any) {
+      console.error('Error in face swap:', err);
+      setError(`Face swap failed: ${err.message}`);
+      setState('preview');
+    }
+  };
 
   const downloadImage = useCallback(async () => {
     if (!result?.generatedImage) return;
@@ -263,6 +326,13 @@ function App() {
     setError(null);
     setCustomPrompt('');
     setShowCustomPromptInput(false);
+    setShowFaceSwapModal(false);
+    setTargetImage(null);
+    setFaceSwapOptions({
+      gender_0: 'male',
+      workflow_type: 'user_hair',
+      upscale: true
+    });
     setIsCameraReady(false);
     setIsStartingCamera(false);
     setState('welcome');
@@ -468,6 +538,7 @@ function App() {
             <p className="text-gray-600">
               {selectedFeature === 'ai-style' && 'Apply AI styling to your image'}
               {selectedFeature === 'custom' && 'Generate with your custom prompt'}
+              {selectedFeature === 'face-swap' && 'Upload target image for face swap'}
             </p>
           </div>
           
@@ -479,6 +550,7 @@ function App() {
             />
           </div>
 
+          {/* Custom Prompt Input */}
           {selectedFeature === 'custom' && (
             <div className="w-full max-w-sm space-y-2">
               <label className="block text-gray-700 text-sm font-medium">
@@ -498,13 +570,98 @@ function App() {
             </div>
           )}
 
+          {/* Face Swap Settings */}
+          {selectedFeature === 'face-swap' && (
+            <div className="w-full max-w-sm space-y-4">
+              {/* Target Image Upload */}
+              <div className="space-y-2">
+                <label className="block text-gray-700 text-sm font-medium">
+                  Target Image <span className="text-red-500">*</span>
+                </label>
+                <div 
+                  onClick={() => document.getElementById('target-image-input')?.click()}
+                  className="w-full h-32 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-assetwise-500 transition-colors"
+                >
+                  {targetImage ? (
+                    <div className="text-center">
+                      <img 
+                        src={URL.createObjectURL(targetImage)} 
+                        alt="Target" 
+                        className="h-20 w-20 object-cover rounded-lg mx-auto mb-2"
+                      />
+                      <p className="text-sm text-gray-600">{targetImage.name}</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                      <p className="text-sm text-gray-600">Upload target image</p>
+                    </div>
+                  )}
+                </div>
+                <input
+                  id="target-image-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setTargetImage(e.target.files?.[0] || null)}
+                  className="hidden"
+                />
+              </div>
+
+              {/* Face Swap Options */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-gray-700 text-sm font-medium mb-1">Gender</label>
+                  <select
+                    value={faceSwapOptions.gender_0}
+                    onChange={(e) => setFaceSwapOptions(prev => ({...prev, gender_0: e.target.value}))}
+                    className="w-full bg-white text-gray-900 px-3 py-2 rounded-lg border border-gray-300 focus:border-assetwise-500 focus:outline-none"
+                  >
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-gray-700 text-sm font-medium mb-1">Workflow</label>
+                  <select
+                    value={faceSwapOptions.workflow_type}
+                    onChange={(e) => setFaceSwapOptions(prev => ({...prev, workflow_type: e.target.value}))}
+                    className="w-full bg-white text-gray-900 px-3 py-2 rounded-lg border border-gray-300 focus:border-assetwise-500 focus:outline-none"
+                  >
+                    <option value="user_hair">User Hair</option>
+                    <option value="target_hair">Target Hair</option>
+                  </select>
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="upscale"
+                    checked={faceSwapOptions.upscale}
+                    onChange={(e) => setFaceSwapOptions(prev => ({...prev, upscale: e.target.checked}))}
+                    className="rounded border-gray-300"
+                  />
+                  <label htmlFor="upscale" className="text-gray-700 text-sm">
+                    Enable upscaling
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex space-x-4">
             <button
               onClick={async () => {
                 if (!capturedImage) return;
 
+                // Validation for different features
                 if (selectedFeature === 'custom' && !customPrompt.trim()) {
                   setError('Please enter a custom prompt before generating.');
+                  return;
+                }
+                
+                if (selectedFeature === 'face-swap' && !targetImage) {
+                  setError('Please upload a target image for face swap.');
                   return;
                 }
                 
@@ -512,11 +669,21 @@ function App() {
                 const blob = await response.blob();
                 const file = new File([blob], 'captured.jpg', { type: blob.type });
                 
-                await generateImage(file);
+                if (selectedFeature === 'face-swap') {
+                  await generateFaceSwap(file, targetImage!);
+                } else {
+                  await generateImage(file);
+                }
               }}
-              disabled={isProcessing || (selectedFeature === 'custom' && !customPrompt.trim())}
+              disabled={
+                isProcessing || 
+                (selectedFeature === 'custom' && !customPrompt.trim()) ||
+                (selectedFeature === 'face-swap' && !targetImage)
+              }
               className={`px-8 py-4 rounded-full font-semibold text-lg transition-all duration-200 transform shadow-lg flex items-center space-x-2 ${
-                isProcessing || (selectedFeature === 'custom' && !customPrompt.trim())
+                isProcessing || 
+                (selectedFeature === 'custom' && !customPrompt.trim()) ||
+                (selectedFeature === 'face-swap' && !targetImage)
                   ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                   : 'bg-assetwise-600 text-white hover:bg-assetwise-700 hover:scale-105 hover:shadow-xl'
               }`}
@@ -524,7 +691,9 @@ function App() {
               <Sparkles className="w-5 h-5" />
               <span>
                 {selectedFeature === 'custom' && !customPrompt.trim() 
-                  ? 'Enter Prompt First' 
+                  ? 'Enter Prompt First'
+                  : selectedFeature === 'face-swap' && !targetImage
+                  ? 'Upload Target Image'
                   : 'Generate AI Image'
                 }
               </span>
@@ -560,6 +729,7 @@ function App() {
             <p className="text-lg text-gray-600 max-w-md">
               {selectedFeature === 'ai-style' && 'Applying beautiful AI styling to your image...'}
               {selectedFeature === 'custom' && 'Generating image from your custom prompt...'}
+              {selectedFeature === 'face-swap' && 'Swapping faces in the image...'}
             </p>
           </div>
           
