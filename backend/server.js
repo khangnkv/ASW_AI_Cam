@@ -1,5 +1,27 @@
 // backend/server.js - CORRECTED VERSION
 
+console.log('=== STARTING ASSETWISE AI GENERATOR ===');
+console.log('Node version:', process.version);
+console.log('Environment:', process.env.NODE_ENV || 'development');
+console.log('Timestamp:', new Date().toISOString());
+
+// Test critical dependencies
+try {
+  require('express');
+  console.log('✅ Express loaded');
+} catch (err) {
+  console.error('❌ Express failed to load:', err.message);
+  process.exit(1);
+}
+
+try {
+  require('@fal-ai/client');
+  console.log('✅ FAL client loaded');
+} catch (err) {
+  console.error('❌ FAL client failed to load:', err.message);
+  process.exit(1);
+}
+
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
@@ -95,34 +117,23 @@ app.use(express.static(path.join(__dirname, '..', 'dist')));
 
 // Health check and other endpoints remain the same
 app.get('/health', (req, res) => {
-  try {
-    const healthData = {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      service: 'assetwise-ai-generator',
-      version: '2.0.0',
-      environment: process.env.NODE_ENV || 'development',
-      port: process.env.PORT || 3000,
-      fal_configured: !!process.env.FAL_KEY,
-      memory: process.memoryUsage(),
-      uptime: process.uptime()
-    };
-    
-    console.log('Health check requested:', {
-      status: healthData.status,
-      timestamp: healthData.timestamp,
-      fal_configured: healthData.fal_configured
-    });
-    
-    res.status(200).json(healthData);
-  } catch (error) {
-    console.error('Health check error:', error);
-    res.status(500).json({
-      status: 'unhealthy',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
+  console.log('Health check requested at:', new Date().toISOString());
+  
+  // Simple, fast response
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    service: 'assetwise-ai-generator'
+  });
+});
+
+// Simple root endpoint for Railway
+app.get('/', (req, res) => {
+  res.status(200).json({
+    message: 'AssetWise AI Generator is running',
+    status: 'healthy',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Main image generation endpoint remains the same
@@ -501,24 +512,36 @@ app.use((error, req, res, next) => {
 });
 
 // Start server
-app.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 AssetWise AI Generator running on port ${port}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📱 Health check: http://0.0.0.0:${port}/health`);
-  console.log(`🔑 FAL_KEY configured: ${process.env.FAL_KEY ? 'Yes' : 'No'}`);
-  
-  // Railway specific logging
-  if (process.env.RAILWAY_ENVIRONMENT) {
-    console.log(`🚂 Railway Environment: ${process.env.RAILWAY_ENVIRONMENT}`);
-    console.log(`🔗 Railway URL: ${process.env.RAILWAY_STATIC_URL || 'Not set'}`);
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`✅ Server successfully started on port ${port}`);
+  console.log(`🌍 Server listening on 0.0.0.0:${port}`);
+  console.log(`📍 Health endpoint: http://0.0.0.0:${port}/health`);
+  console.log(`🚀 AssetWise AI Generator is ready!`);
+});
+
+// Handle server errors
+server.on('error', (err) => {
+  console.error('❌ Server error:', err);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use`);
   }
-  
-  // Test health endpoint immediately
-  console.log('🔍 Testing health endpoint...');
-  require('http').get(`http://localhost:${port}/health`, (res) => {
-    console.log(`✅ Health check response: ${res.statusCode}`);
-  }).on('error', (err) => {
-    console.error('❌ Health check failed:', err.message);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
+    process.exit(0);
   });
 });
 
