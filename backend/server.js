@@ -295,18 +295,39 @@ app.post('/api/face-swap', upload.any(), async (req, res) => {
     
     const generatedImageBase64 = Buffer.from(imageResponse.data).toString('base64');
     const generatedImageDataUrl = `data:image/jpeg;base64,${generatedImageBase64}`;
-    
-    // Generate QR code for the original URL
-    console.log('Generating QR code...');
-    const qrCode = await QRCode.toDataURL(generatedImageUrl);
-    
+
+    // *** NEW: Store image for download endpoint ***
+    const imageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    if (!global.imageStore) global.imageStore = {};
+    global.imageStore[imageId] = generatedImageBase64;
+
+    console.log('💾 Stored image for download with ID:', imageId);
+
+    // Create download URL for QR code
+    const downloadUrl = `${req.protocol}://${req.get('host')}/download/${imageId}`;
+    console.log('📱 Download URL created:', downloadUrl);
+
+    // Instead of creating download URL for QR code, use direct FAL.ai URL
+    console.log('Generating QR code for direct image URL...');
+    const qrCode = await QRCode.toDataURL(generatedImageUrl, {  // Use generatedImageUrl directly
+      width: 256,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      }
+    });
+
+    console.log('✅ QR code generated for direct image URL:', generatedImageUrl);
+
     console.log('✅ AssetWise: Advanced face-swap completed successfully');
     
     res.json({
       success: true,
       generatedImage: generatedImageDataUrl,
-      publicImageUrl: generatedImageUrl,
-      qrCode: qrCode,
+      publicImageUrl: generatedImageUrl,      // Original FAL.ai URL for display
+      downloadUrl: downloadUrl,               // Keep download URL for web interface
+      qrCode: qrCode,                        // QR code points to direct FAL.ai URL
       feature: 'face-swap',
       parameters: {
         workflow_type: falInput.workflow_type,
@@ -317,6 +338,7 @@ app.post('/api/face-swap', upload.any(), async (req, res) => {
         faceImageSize: faceImageFile.size,
         targetImageSize: targetImageFile.size
       },
+      imageId: imageId,                      // Include image ID for reference
       timestamp: new Date().toISOString(),
       message: 'Advanced face-swap processing completed successfully'
     });
@@ -350,6 +372,61 @@ app.post('/api/face-swap', upload.any(), async (req, res) => {
   }
 });
 
+// Image download endpoint - forces download instead of display
+app.get('/download/:imageId', async (req, res) => {
+  try {
+    const { imageId } = req.params;
+    console.log('=== Download request for image:', imageId);
+    
+    // Check if we have the image stored temporarily
+    if (global.imageStore && global.imageStore[imageId]) {
+      console.log('✅ Found image in temporary storage');
+      
+      const imageBase64 = global.imageStore[imageId];
+      const imageBuffer = Buffer.from(imageBase64, 'base64');
+      
+      // Set headers to force download
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Content-Disposition', `attachment; filename="assetwise-generated-${imageId}.jpg"`);
+      res.setHeader('Content-Length', imageBuffer.length);
+      res.setHeader('Cache-Control', 'no-cache');
+      
+      console.log('📥 Sending image for download, size:', imageBuffer.length, 'bytes');
+      return res.send(imageBuffer);
+    }
+    
+    // If not in temporary storage, return 404
+    console.log('❌ Image not found in storage');
+    res.status(404).json({ 
+      error: 'Image not found', 
+      details: 'The requested image is no longer available for download' 
+    });
+    
+  } catch (error) {
+    console.error('Error in download endpoint:', error);
+    res.status(500).json({ 
+      error: 'Download failed', 
+      details: error.message 
+    });
+  }
+});
+
+// Cleanup old images periodically (run every hour)
+setInterval(() => {
+  if (global.imageStore) {
+    const now = Date.now();
+    const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+    
+    Object.keys(global.imageStore).forEach(imageId => {
+      // Extract timestamp from imageId (assumes format: timestamp-randomstring)
+      const timestamp = parseInt(imageId.split('-')[0]);
+      if (now - timestamp > oneHour) {
+        delete global.imageStore[imageId];
+        console.log('🗑️ Cleaned up old image:', imageId);
+      }
+    });
+  }
+}, 60 * 60 * 1000); // Run every hour
 
 // Serve React app for all other routes
 app.get('*', (req, res) => {
