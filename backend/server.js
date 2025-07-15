@@ -37,9 +37,41 @@ if (process.env.FAL_KEY) {
 
 // Middleware
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://*.railway.app', 'https://*.up.railway.app']
-    : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or Postman)
+    if (!origin) return callback(null, true);
+    
+    // In production, check Railway domains
+    if (process.env.NODE_ENV === 'production') {
+      const allowedOrigins = [
+        /https:\/\/.*\.railway\.app$/,
+        /https:\/\/.*\.up\.railway\.app$/
+      ];
+      
+      const isAllowed = allowedOrigins.some(pattern => pattern.test(origin));
+      if (isAllowed) {
+        return callback(null, true);
+      }
+      
+      // Log the rejected origin for debugging
+      console.log('CORS rejected origin:', origin);
+      return callback(new Error('Not allowed by CORS'));
+    }
+    
+    // In development, allow common development origins
+    const devOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:5173'
+    ];
+    
+    if (devOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    return callback(null, true); // Allow all in development
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' }));
@@ -62,7 +94,36 @@ const upload = multer({
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 
 // Health check and other endpoints remain the same
-app.get('/health', (req, res) => res.json({ status: 'healthy', timestamp: new Date().toISOString(), service: 'assetwise-ai-generator' }));
+app.get('/health', (req, res) => {
+  try {
+    const healthData = {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      service: 'assetwise-ai-generator',
+      version: '2.0.0',
+      environment: process.env.NODE_ENV || 'development',
+      port: process.env.PORT || 3000,
+      fal_configured: !!process.env.FAL_KEY,
+      memory: process.memoryUsage(),
+      uptime: process.uptime()
+    };
+    
+    console.log('Health check requested:', {
+      status: healthData.status,
+      timestamp: healthData.timestamp,
+      fal_configured: healthData.fal_configured
+    });
+    
+    res.status(200).json(healthData);
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // Main image generation endpoint remains the same
 app.post('/api/generate', upload.any(), async (req, res) => {
@@ -442,5 +503,50 @@ app.use((error, req, res, next) => {
 // Start server
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 AssetWise AI Generator running on port ${port}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📱 Health check: http://0.0.0.0:${port}/health`);
   console.log(`🔑 FAL_KEY configured: ${process.env.FAL_KEY ? 'Yes' : 'No'}`);
+  
+  // Railway specific logging
+  if (process.env.RAILWAY_ENVIRONMENT) {
+    console.log(`🚂 Railway Environment: ${process.env.RAILWAY_ENVIRONMENT}`);
+    console.log(`🔗 Railway URL: ${process.env.RAILWAY_STATIC_URL || 'Not set'}`);
+  }
+  
+  // Test health endpoint immediately
+  console.log('🔍 Testing health endpoint...');
+  require('http').get(`http://localhost:${port}/health`, (res) => {
+    console.log(`✅ Health check response: ${res.statusCode}`);
+  }).on('error', (err) => {
+    console.error('❌ Health check failed:', err.message);
+  });
 });
+
+console.log('=== RAILWAY STARTUP DIAGNOSTICS ===');
+console.log('Node version:', process.version);
+console.log('Platform:', process.platform);
+console.log('Environment:', process.env.NODE_ENV);
+console.log('Port:', process.env.PORT);
+console.log('FAL_KEY present:', !!process.env.FAL_KEY);
+
+// Test Blob availability
+try {
+  const { Blob } = require('node:buffer');
+  console.log('✅ Blob support: Available');
+  
+  // Test Blob creation
+  const testBlob = new Blob(['test'], { type: 'text/plain' });
+  console.log('✅ Blob test: Working (size:', testBlob.size, ')');
+} catch (error) {
+  console.error('❌ Blob support error:', error.message);
+  
+  // Fallback for older Node versions
+  try {
+    global.Blob = require('buffer').Blob;
+    console.log('✅ Blob fallback: Working');
+  } catch (fallbackError) {
+    console.error('❌ Blob fallback failed:', fallbackError.message);
+  }
+}
+
+console.log('===================================');
