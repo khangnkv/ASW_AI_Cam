@@ -38,7 +38,12 @@ if (process.env.FAL_KEY) {
 // Middleware
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? ['https://*.railway.app', 'https://*.up.railway.app']
+    ? [
+        'https://*.railway.app', 
+        'https://*.up.railway.app',
+        'https://*.netlify.app',
+        'https://majestic-trifle-1309e2.netlify.app'
+      ]
     : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'],
   credentials: true
 }));

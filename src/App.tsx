@@ -227,7 +227,8 @@ function App() {
         }
       }
 
-      const response = await fetch('/api/generate', {
+      const apiUrl = import.meta.env.VITE_API_URL || '/api';
+      const response = await fetch(`${apiUrl}/generate`, {
         method: 'POST',
         body: formData
       });
@@ -278,7 +279,8 @@ function App() {
         }
       }
 
-      const response = await fetch('/api/face-swap', {
+      const apiUrl = import.meta.env.VITE_API_URL || '/api';
+      const response = await fetch(`${apiUrl}/face-swap`, {
         method: 'POST',
         body: formData
       });
