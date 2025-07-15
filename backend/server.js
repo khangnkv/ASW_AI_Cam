@@ -71,32 +71,36 @@ app.use(cors({
         // Railway backend domains
         /https:\/\/.*\.railway\.app$/,
         /https:\/\/.*\.up\.railway\.app$/,
-        // Netlify frontend domains
+        // Netlify frontend domains (general patterns)
         /https:\/\/.*\.netlify\.app$/,
         /https:\/\/.*\.netlify\.com$/,
-        // Custom domains (add yours here)
-        /https:\/\/assetwise.*$/
+        // Specific domains (add your Netlify URL when you get it)
+        'https://assetwise-ai-cam.netlify.app',  // Example - replace with your actual URL
+        'https://aswaicam.netlify.app',          // Another example
+        // Development localhost
+        'http://localhost:5173',
+        'http://localhost:3000'
       ];
       
-      const isAllowed = allowedOrigins.some(pattern => pattern.test(origin));
+      const isAllowed = allowedOrigins.some(pattern => {
+        if (typeof pattern === 'string') {
+          return pattern === origin;
+        }
+        return pattern.test(origin);
+      });
+      
       if (isAllowed) {
         console.log('✅ CORS allowed for:', origin);
         return callback(null, true);
       }
       
       console.log('❌ CORS rejected for:', origin);
+      console.log('Allowed patterns:', allowedOrigins);
       return callback(new Error('Not allowed by CORS'));
     }
     
-    // Development: Allow localhost
-    const devOrigins = [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:5173'
-    ];
-    
-    if (devOrigins.includes(origin)) {
+    // Development: Allow all localhost origins
+    if (origin && origin.includes('localhost')) {
       return callback(null, true);
     }
     

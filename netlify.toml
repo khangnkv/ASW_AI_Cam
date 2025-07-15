@@ -8,7 +8,13 @@
 
 [[redirects]]
   from = "/api/*"
-  to = "https://your-railway-backend.railway.app/api/:splat"
+  to = "https://aswaicam-production.up.railway.app/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/download/*"
+  to = "https://aswaicam-production.up.railway.app/download/:splat"
   status = 200
   force = true
 
@@ -20,3 +26,11 @@
 [dev]
   command = "npm run dev"
   port = 5173
+
+# Headers for better API support
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
