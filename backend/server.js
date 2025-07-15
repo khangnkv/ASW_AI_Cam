@@ -60,27 +60,35 @@ if (process.env.FAL_KEY) {
 // Middleware
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or Postman)
+    console.log('CORS request from origin:', origin);
+    
+    // Allow requests with no origin (mobile apps, Postman)
     if (!origin) return callback(null, true);
     
-    // In production, check Railway domains
+    // Production: Allow Netlify and Railway domains
     if (process.env.NODE_ENV === 'production') {
       const allowedOrigins = [
+        // Railway backend domains
         /https:\/\/.*\.railway\.app$/,
-        /https:\/\/.*\.up\.railway\.app$/
+        /https:\/\/.*\.up\.railway\.app$/,
+        // Netlify frontend domains
+        /https:\/\/.*\.netlify\.app$/,
+        /https:\/\/.*\.netlify\.com$/,
+        // Custom domains (add yours here)
+        /https:\/\/assetwise.*$/
       ];
       
       const isAllowed = allowedOrigins.some(pattern => pattern.test(origin));
       if (isAllowed) {
+        console.log('✅ CORS allowed for:', origin);
         return callback(null, true);
       }
       
-      // Log the rejected origin for debugging
-      console.log('CORS rejected origin:', origin);
+      console.log('❌ CORS rejected for:', origin);
       return callback(new Error('Not allowed by CORS'));
     }
     
-    // In development, allow common development origins
+    // Development: Allow localhost
     const devOrigins = [
       'http://localhost:3000',
       'http://localhost:5173',
@@ -92,9 +100,12 @@ app.use(cors({
       return callback(null, true);
     }
     
-    return callback(null, true); // Allow all in development
+    // Allow all in development
+    return callback(null, true);
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -112,26 +123,52 @@ const upload = multer({
   }
 });
 
-// Serve static files
-app.use(express.static(path.join(__dirname, '..', 'dist')));
+// Remove static file serving (since frontend is on Netlify)
+// Comment out or remove these lines:
+// app.use(express.static(path.join(__dirname, '../dist')));
+// app.get('*', (req, res) => {
+//   res.sendFile(path.join(__dirname, '../dist/index.html'));
+// });
 
 // Health check and other endpoints remain the same
 app.get('/health', (req, res) => {
-  console.log('Health check requested at:', new Date().toISOString());
+  console.log('🔍 Health check requested');
   
-  // Simple, fast response
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    service: 'assetwise-ai-generator'
-  });
+  try {
+    const health = {
+      status: 'healthy',
+      service: 'assetwise-backend',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      version: '2.0.0',
+      fal_key_configured: !!process.env.FAL_KEY,
+      uptime: process.uptime()
+    };
+    
+    res.status(200).json(health);
+    console.log('✅ Health check passed');
+  } catch (error) {
+    console.error('❌ Health check failed:', error);
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
-// Simple root endpoint for Railway
-app.get('/', (req, res) => {
-  res.status(200).json({
-    message: 'AssetWise AI Generator is running',
-    status: 'healthy',
+// Add API info endpoint
+app.get('/api', (req, res) => {
+  res.json({
+    message: 'AssetWise AI Generator API',
+    version: '2.0.0',
+    endpoints: [
+      'GET /health',
+      'GET /api',
+      'POST /api/generate',
+      'POST /api/face-swap',
+      'GET /download/:imageId'
+    ],
     timestamp: new Date().toISOString()
   });
 });
@@ -499,11 +536,6 @@ setInterval(() => {
     });
   }
 }, 60 * 60 * 1000); // Run every hour
-
-// Serve React app for all other routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
-});
 
 // Final error handler
 app.use((error, req, res, next) => {
