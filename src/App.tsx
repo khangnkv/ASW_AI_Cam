@@ -757,14 +757,68 @@ function App() {
 
       {/* Result Screen */}
       {state === 'result' && result && (
-        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 space-y-6 bg-gray-50">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-4 space-y-6 bg-gray-50 animate-fade-in">
           <div className="text-center">
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">AI Generation Complete!</h2>
-            <p className="text-gray-600">Your transformed image is ready</p>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 transition-all duration-200">AI Generation Complete!</h2>
+            <p className="text-sm sm:text-base text-gray-600 transition-all duration-200">Your transformed image is ready</p>
           </div>
           
-          <div className="w-full max-w-lg space-y-4">
-            <div className="relative">
+          {/* Responsive layout: side-by-side on desktop, stacked on mobile */}
+          <div className="w-full max-w-6xl">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-center lg:space-x-8 space-y-6 lg:space-y-0">
+              {/* Generated Image */}
+              <div className="flex-1 max-w-lg mx-auto lg:mx-0">
+                <div className="relative transform hover:scale-105 transition-transform duration-200">
+                  <img
+                    src={result.generatedImage}
+                    alt="AI Generated"
+                    className="w-full h-auto rounded-2xl shadow-lg border border-gray-200 transition-shadow duration-200 hover:shadow-xl"
+                  />
+                </div>
+              </div>
+              
+              {/* QR Code - responsive positioning */}
+              {result.qrCode && (
+                <div className="flex justify-center lg:justify-start">
+                  <div className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-200 w-fit transform hover:scale-105 transition-transform duration-200">
+                    <img
+                      src={result.qrCode}
+                      alt="Download QR Code"
+                      className="w-24 h-24 sm:w-32 sm:h-32 mx-auto"
+                    />
+                    <p className="text-gray-700 text-center text-xs sm:text-sm mt-2 font-medium">
+                      Scan to download
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+            <button
+              onClick={downloadImage}
+              className="px-6 sm:px-8 py-3 sm:py-4 rounded-full font-semibold text-base sm:text-lg bg-assetwise-600 text-white hover:bg-assetwise-700 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center justify-center space-x-2"
+            >
+              <Download className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Download Image</span>
+            </button>
+            
+            <button
+              onClick={reset}
+              className="bg-gray-200 text-gray-700 px-4 sm:px-6 py-3 sm:py-4 rounded-full font-semibold hover:bg-gray-300 transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center justify-center space-x-2"
+            >
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>New Image</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
               <img
                 src={result.generatedImage}
                 alt="AI Generated"
