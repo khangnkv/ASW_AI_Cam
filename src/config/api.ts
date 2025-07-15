@@ -12,6 +12,7 @@ const API_CONFIG = {
 const isProduction = typeof window !== 'undefined' && 
   (window.location.hostname.includes('netlify.app') || 
    window.location.hostname.includes('netlify.com') ||
+   window.location.hostname.includes('netlify.dev') ||
    window.location.hostname !== 'localhost');
 
 const environment = isProduction ? 'production' : 'development';
@@ -20,7 +21,8 @@ export const API_BASE_URL = API_CONFIG[environment].baseURL;
 console.log('🔗 API Configuration:', {
   environment,
   hostname: typeof window !== 'undefined' ? window.location.hostname : 'server',
-  baseURL: API_BASE_URL
+  baseURL: API_BASE_URL,
+  isProduction
 });
 
 export default API_CONFIG;
