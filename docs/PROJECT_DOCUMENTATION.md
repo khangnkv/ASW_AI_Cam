@@ -577,23 +577,9 @@ PORT=3000
 
 ### Files That Can Be Removed
 
-#### ❌ `docker-compose.yml`
-**Status: Obsolete**
-- **Reason**: Originally for local multi-container development
-- **Current State**: Not used in production deployment
-- **Recommendation**: Remove or move to `docs/legacy/`
-
-#### ❌ `Dockerfile` (Root Level)
-**Status: Obsolete**  
-- **Reason**: Replaced by `Dockerfile.railway` for production
-- **Current State**: Not referenced in deployment
-- **Recommendation**: Remove to avoid confusion
-
-#### ❌ `nginx.conf`
-**Status: Obsolete**
-- **Reason**: Nginx not used in current Netlify + Railway architecture  
-- **Current State**: No reverse proxy needed
-- **Recommendation**: Remove unless planning future nginx deployment
+```typescript
+// Everything that's not necessary is removed so it is empty here for now
+```
 
 ### Potentially Unused Code Sections
 
