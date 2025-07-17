@@ -3,6 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Camera, Upload, Download, RefreshCw, Sparkles, ArrowLeft, Palette, RotateCcw, Users, Type, RotateCw, X } from 'lucide-react';
 import QRCode from 'qrcode';
+import { API_BASE_URL } from './config/api';
 
 type AppState = 'welcome' | 'camera' | 'preview' | 'processing' | 'result';
 type FeatureType = 'ai-style' | 'custom' | 'face-swap';
@@ -199,47 +200,26 @@ function App() {
     setState('processing');
     setError(null);
   
-    // Always use the latest state directly
-    const feature = selectedFeature;
-    const prompt = customPrompt;
-
-    console.log('=== GENERATE IMAGE INITIATED ===');
-    console.log('Feature:', feature);
-    console.log('Prompt:', prompt);
-    
     try {
-      if (feature === 'custom' && !prompt.trim()) {
-        throw new Error('Custom prompt is required.');
-      }
-  
       const formData = new FormData();
       formData.append('image', imageFile);
-      formData.append('feature', feature);
-      // Send the prompt for custom, or an empty string otherwise
-      formData.append('prompt', feature === 'custom' ? prompt.trim() : '');
-  
-      console.log('=== FORMDATA SENT TO SERVER ===');
-      for (const [key, value] of formData.entries()) {
-        if (value instanceof File) {
-          console.log(`${key}: File(${value.name}, ${value.type})`);
-        } else {
-          console.log(`${key}: "${value}"`);
-        }
+      formData.append('feature', selectedFeature || 'ai-style');
+      
+      if (selectedFeature === 'custom' && customPrompt.trim()) {
+        formData.append('prompt', customPrompt.trim());
       }
 
-      const apiUrl = import.meta.env.VITE_API_URL || '/api';
-      const response = await fetch(`${apiUrl}/generate`, {
+      const response = await fetch('/api/generate', {
         method: 'POST',
         body: formData
       });
   
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.details || errorData.error || 'Request failed');
+        throw new Error(errorData.details || errorData.error || 'Generation failed');
       }
   
       const data = await response.json();
-  
       if (data.success) {
         setResult(data);
         setState('result');
@@ -247,9 +227,9 @@ function App() {
         throw new Error(data.error || 'Generation failed on server');
       }
     } catch (err: any) {
-      console.error('Error in generateImage:', err);
+      console.error('Error generating image:', err);
       setError(`Generation failed: ${err.message}`);
-      setState('preview'); // Return to preview on error
+      setState('preview');
     }
   };
 
@@ -257,11 +237,6 @@ function App() {
     setState('processing');
     setError(null);
 
-    console.log('=== FACE SWAP GENERATION ===');
-    console.log('Face image:', faceImageFile.name);
-    console.log('Target image:', targetImageFile.name);
-    console.log('Options:', faceSwapOptions);
-    
     try {
       const formData = new FormData();
       formData.append('face_image', faceImageFile);
@@ -279,8 +254,7 @@ function App() {
         }
       }
 
-      const apiUrl = import.meta.env.VITE_API_URL || '/api';
-      const response = await fetch(`${apiUrl}/face-swap`, {
+      const response = await fetch('/api/face-swap', {
         method: 'POST',
         body: formData
       });
@@ -291,7 +265,6 @@ function App() {
       }
 
       const data = await response.json();
-
       if (data.success) {
         setResult(data);
         setState('result');

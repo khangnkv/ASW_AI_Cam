@@ -1,5 +1,27 @@
 // backend/server.js - CORRECTED VERSION
 
+console.log('=== STARTING ASSETWISE AI GENERATOR ===');
+console.log('Node version:', process.version);
+console.log('Environment:', process.env.NODE_ENV || 'development');
+console.log('Timestamp:', new Date().toISOString());
+
+// Test critical dependencies
+try {
+  require('express');
+  console.log('✅ Express loaded');
+} catch (err) {
+  console.error('❌ Express failed to load:', err.message);
+  process.exit(1);
+}
+
+try {
+  require('@fal-ai/client');
+  console.log('✅ FAL client loaded');
+} catch (err) {
+  console.error('❌ FAL client failed to load:', err.message);
+  process.exit(1);
+}
+
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
@@ -38,12 +60,7 @@ if (process.env.FAL_KEY) {
 // Middleware
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? [
-        'https://*.railway.app', 
-        'https://*.up.railway.app',
-        'https://*.netlify.app',
-        'https://majestic-trifle-1309e2.netlify.app'
-      ]
+    ? ['https://*.railway.app', 'https://*.up.railway.app']
     : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'],
   credentials: true
 }));
@@ -63,11 +80,55 @@ const upload = multer({
   }
 });
 
-// Serve static files
-app.use(express.static(path.join(__dirname, '..', 'dist')));
+// Remove static file serving (since frontend is on Netlify)
+// Comment out or remove these lines:
+// app.use(express.static(path.join(__dirname, '../dist')));
+// app.get('*', (req, res) => {
+//   res.sendFile(path.join(__dirname, '../dist/index.html'));
+// });
 
 // Health check and other endpoints remain the same
-app.get('/health', (req, res) => res.json({ status: 'healthy', timestamp: new Date().toISOString(), service: 'assetwise-ai-generator' }));
+app.get('/health', (req, res) => {
+  console.log('🔍 Health check requested');
+  
+  try {
+    const health = {
+      status: 'healthy',
+      service: 'assetwise-backend',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      version: '2.0.0',
+      fal_key_configured: !!process.env.FAL_KEY,
+      uptime: process.uptime()
+    };
+    
+    res.status(200).json(health);
+    console.log('✅ Health check passed');
+  } catch (error) {
+    console.error('❌ Health check failed:', error);
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Add API info endpoint
+app.get('/api', (req, res) => {
+  res.json({
+    message: 'AssetWise AI Generator API',
+    version: '2.0.0',
+    endpoints: [
+      'GET /health',
+      'GET /api',
+      'POST /api/generate',
+      'POST /api/face-swap',
+      'GET /download/:imageId'
+    ],
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Main image generation endpoint remains the same
 app.post('/api/generate', upload.any(), async (req, res) => {
@@ -300,18 +361,39 @@ app.post('/api/face-swap', upload.any(), async (req, res) => {
     
     const generatedImageBase64 = Buffer.from(imageResponse.data).toString('base64');
     const generatedImageDataUrl = `data:image/jpeg;base64,${generatedImageBase64}`;
-    
-    // Generate QR code for the original URL
-    console.log('Generating QR code...');
-    const qrCode = await QRCode.toDataURL(generatedImageUrl);
-    
+
+    // *** NEW: Store image for download endpoint ***
+    const imageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    if (!global.imageStore) global.imageStore = {};
+    global.imageStore[imageId] = generatedImageBase64;
+
+    console.log('💾 Stored image for download with ID:', imageId);
+
+    // Create download URL for QR code
+    const downloadUrl = `${req.protocol}://${req.get('host')}/download/${imageId}`;
+    console.log('📱 Download URL created:', downloadUrl);
+
+    // Instead of creating download URL for QR code, use direct FAL.ai URL
+    console.log('Generating QR code for direct image URL...');
+    const qrCode = await QRCode.toDataURL(generatedImageUrl, {  // Use generatedImageUrl directly
+      width: 256,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      }
+    });
+
+    console.log('✅ QR code generated for direct image URL:', generatedImageUrl);
+
     console.log('✅ AssetWise: Advanced face-swap completed successfully');
     
     res.json({
       success: true,
       generatedImage: generatedImageDataUrl,
-      publicImageUrl: generatedImageUrl,
-      qrCode: qrCode,
+      publicImageUrl: generatedImageUrl,      // Original FAL.ai URL for display
+      downloadUrl: downloadUrl,               // Keep download URL for web interface
+      qrCode: qrCode,                        // QR code points to direct FAL.ai URL
       feature: 'face-swap',
       parameters: {
         workflow_type: falInput.workflow_type,
@@ -322,6 +404,7 @@ app.post('/api/face-swap', upload.any(), async (req, res) => {
         faceImageSize: faceImageFile.size,
         targetImageSize: targetImageFile.size
       },
+      imageId: imageId,                      // Include image ID for reference
       timestamp: new Date().toISOString(),
       message: 'Advanced face-swap processing completed successfully'
     });
@@ -355,11 +438,61 @@ app.post('/api/face-swap', upload.any(), async (req, res) => {
   }
 });
 
-
-// Serve React app for all other routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+// Image download endpoint - forces download instead of display
+app.get('/download/:imageId', async (req, res) => {
+  try {
+    const { imageId } = req.params;
+    console.log('=== Download request for image:', imageId);
+    
+    // Check if we have the image stored temporarily
+    if (global.imageStore && global.imageStore[imageId]) {
+      console.log('✅ Found image in temporary storage');
+      
+      const imageBase64 = global.imageStore[imageId];
+      const imageBuffer = Buffer.from(imageBase64, 'base64');
+      
+      // Set headers to force download
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Content-Disposition', `attachment; filename="assetwise-generated-${imageId}.jpg"`);
+      res.setHeader('Content-Length', imageBuffer.length);
+      res.setHeader('Cache-Control', 'no-cache');
+      
+      console.log('📥 Sending image for download, size:', imageBuffer.length, 'bytes');
+      return res.send(imageBuffer);
+    }
+    
+    // If not in temporary storage, return 404
+    console.log('❌ Image not found in storage');
+    res.status(404).json({ 
+      error: 'Image not found', 
+      details: 'The requested image is no longer available for download' 
+    });
+    
+  } catch (error) {
+    console.error('Error in download endpoint:', error);
+    res.status(500).json({ 
+      error: 'Download failed', 
+      details: error.message 
+    });
+  }
 });
+
+// Cleanup old images periodically (run every hour)
+setInterval(() => {
+  if (global.imageStore) {
+    const now = Date.now();
+    const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+    
+    Object.keys(global.imageStore).forEach(imageId => {
+      // Extract timestamp from imageId (assumes format: timestamp-randomstring)
+      const timestamp = parseInt(imageId.split('-')[0]);
+      if (now - timestamp > oneHour) {
+        delete global.imageStore[imageId];
+        console.log('🗑️ Cleaned up old image:', imageId);
+      }
+    });
+  }
+}, 60 * 60 * 1000); // Run every hour
 
 // Final error handler
 app.use((error, req, res, next) => {
@@ -368,7 +501,64 @@ app.use((error, req, res, next) => {
 });
 
 // Start server
-app.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 AssetWise AI Generator running on port ${port}`);
-  console.log(`🔑 FAL_KEY configured: ${process.env.FAL_KEY ? 'Yes' : 'No'}`);
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`✅ Server successfully started on port ${port}`);
+  console.log(`🌍 Server listening on 0.0.0.0:${port}`);
+  console.log(`📍 Health endpoint: http://0.0.0.0:${port}/health`);
+  console.log(`🚀 AssetWise AI Generator is ready!`);
 });
+
+// Handle server errors
+server.on('error', (err) => {
+  console.error('❌ Server error:', err);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use`);
+  }
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
+    process.exit(0);
+  });
+});
+
+console.log('=== RAILWAY STARTUP DIAGNOSTICS ===');
+console.log('Node version:', process.version);
+console.log('Platform:', process.platform);
+console.log('Environment:', process.env.NODE_ENV);
+console.log('Port:', process.env.PORT);
+console.log('FAL_KEY present:', !!process.env.FAL_KEY);
+
+// Test Blob availability
+try {
+  const { Blob } = require('node:buffer');
+  console.log('✅ Blob support: Available');
+  
+  // Test Blob creation
+  const testBlob = new Blob(['test'], { type: 'text/plain' });
+  console.log('✅ Blob test: Working (size:', testBlob.size, ')');
+} catch (error) {
+  console.error('❌ Blob support error:', error.message);
+  
+  // Fallback for older Node versions
+  try {
+    global.Blob = require('buffer').Blob;
+    console.log('✅ Blob fallback: Working');
+  } catch (fallbackError) {
+    console.error('❌ Blob fallback failed:', fallbackError.message);
+  }
+}
+
+console.log('===================================');

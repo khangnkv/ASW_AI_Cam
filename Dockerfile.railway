@@ -1,36 +1,9 @@
-# Multi-stage build for Railway single-service deployment
-FROM node:18-alpine AS frontend-builder
+# Railway Backend-Only Dockerfile
+FROM node:18-alpine
 
-# Set working directory
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-COPY postcss.config.js ./
-COPY tailwind.config.js ./
-COPY tsconfig*.json ./
-COPY vite.config.ts ./
-
-# Install dependencies including devDependencies for build
-RUN npm ci
-
-# Copy source code
-COPY src/ ./src/
-COPY index.html ./
-COPY eslint.config.js ./
-COPY public/ ./public/
-
-# Build the frontend
-RUN npm run build
-
-# Production stage
-FROM node:18-alpine AS production
-
-# Install build dependencies for sharp
+# Install system dependencies
 RUN apk add --no-cache \
     libc6-compat \
-    vips-dev \
-    build-base \
     python3 \
     make \
     g++
@@ -38,43 +11,35 @@ RUN apk add --no-cache \
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files for backend dependencies
 COPY package*.json ./
 
-# Install ALL dependencies (not just production) to ensure sharp builds correctly
-RUN npm ci
+# Install only production dependencies
+RUN npm ci --only=production
 
-# Create the backend directory structure
-RUN mkdir -p backend
+# Copy backend files only
+COPY backend/ ./backend/
 
-# Copy the built frontend from builder stage
-COPY --from=frontend-builder /app/dist ./dist
-
-# Copy the backend server file to the correct location
-COPY backend/server.js ./backend/server.js
-
-# Copy any other necessary files
+# Copy environment files
 COPY .env* ./
 
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
-
-# Change ownership of the app directory
-RUN chown -R nodejs:nodejs /app
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
 
 USER nodejs
 
 # Expose port
 EXPOSE 3000
 
-# Set environment variables
+# Environment variables
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+# Health check for Railway
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
 
-# Start the application with correct path
+# Start backend server
 CMD ["node", "backend/server.js"]

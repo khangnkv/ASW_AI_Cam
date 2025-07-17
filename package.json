@@ -7,7 +7,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "node backend/server.js"
+    "start": "node backend/server.js",
+    "netlify:build": "npm run build",
+    "netlify:dev": "npm run dev"
   },
   "dependencies": {
     "@fal-ai/client": "^1.5.0",
