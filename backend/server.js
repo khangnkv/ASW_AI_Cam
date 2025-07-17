@@ -74,9 +74,10 @@ app.use(cors({
         // Netlify frontend domains (general patterns)
         /https:\/\/.*\.netlify\.app$/,
         /https:\/\/.*\.netlify\.com$/,
+        /https:\/\/.*\.netlify\.dev$/,
         // Specific domains (add your Netlify URL when you get it)
-        'https://assetwise-ai-cam.netlify.app',  // Example - replace with your actual URL
-        'https://aswaicam.netlify.app',          // Another example
+        'https://assetwise-ai-generator.netlify.app',
+        'https://aswaicam.netlify.app',
         // Development localhost
         'http://localhost:5173',
         'http://localhost:3000'
