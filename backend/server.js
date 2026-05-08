@@ -71,21 +71,20 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
     });
 
     console.log('Result received:', result);
+    
+    console.log('Full result object:', JSON.stringify(result, null, 2));
 
-    // Get the generated image URL
-    const generatedImageUrl = result.images[0].url;
-    
-    // Download and convert to base64
-    const imageResponse = await axios.get(generatedImageUrl, {
-      responseType: 'arraybuffer'
-    });
-    
-    const generatedImageBase64 = Buffer.from(imageResponse.data).toString('base64');
-    const generatedImageDataUrl = `data:image/jpeg;base64,${generatedImageBase64}`;
-    
+    // Correct path confirmed from logs: result.data.images[0].url
+    if (!result?.data?.images?.[0]?.url) {
+      throw new Error(`No image URL in result: ${JSON.stringify(result)}`);
+    }
+
+    const generatedImageUrl = result.data.images[0].url;
+
+    // Just return the URL directly — no need to download and re-encode
     res.json({
       success: true,
-      ghibliImage: generatedImageDataUrl,
+      generatedImage: generatedImageUrl,   // ← matches frontend interface
       message: 'Image processed successfully'
     });
 

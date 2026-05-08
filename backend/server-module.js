@@ -69,7 +69,7 @@ router.post('/generate', upload.single('image'), async (req, res) => {
     
     res.json({
       success: true,
-      ghibliImage: generatedImageDataUrl,
+      generatedImage: generatedImageUrl,   // ← matches frontend interface
       message: 'Image processed successfully'
     });
 
