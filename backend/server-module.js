@@ -1,24 +1,10 @@
 const express = require('express');
-const cors = require('cors');
 const multer = require('multer');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const { fal } = require("@fal-ai/client");  // ← CHANGED
+const { fal } = require("@fal-ai/client");
 require('dotenv').config();
 
-console.log('=== DEBUG ENV LOADING ===');
-console.log('Current working directory:', process.cwd());
-console.log('FAL_KEY from env:', process.env.FAL_KEY);
-console.log('FAL_KEY length:', process.env.FAL_KEY?.length);
-console.log('=========================');
-
-const app = express();
-const port = process.env.PORT || 3001;
-
-// Middleware
-app.use(cors());
-app.use(express.json());
+const router = express.Router();
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -34,13 +20,11 @@ fal.config({
   credentials: process.env.FAL_KEY,
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
+// Middleware
+router.use(express.json());
 
 // Main image generation endpoint
-app.post('/api/generate', upload.single('image'), async (req, res) => {
+router.post('/generate', upload.single('image'), async (req, res) => {
   try {
     console.log('Received image generation request');
     
@@ -98,22 +82,4 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
   }
 });
 
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
-  res.status(500).json({
-    error: 'Internal server error',
-    details: error.message
-  });
-});
-
-// Start server
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Ghibli Portrait Backend running on port ${port}`);
-  console.log(`Local: http://localhost:${port}/health`);
-  console.log(`Network: http://0.0.0.0:${port}/health`);
-  console.log(`FAL_KEY configured: ${process.env.FAL_KEY ? 'Yes' : 'No'}`);
-  if (process.env.FAL_KEY) {
-    console.log(`Using FAL_KEY starting with: ${process.env.FAL_KEY.substring(0, 5)}...`);
-  }
-});
+module.exports = router;

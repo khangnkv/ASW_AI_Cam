@@ -1,0 +1,10 @@
+{
+  "name": "test-railway-local",
+  "version": "1.0.0",
+  "scripts": {
+    "test:railway": "node railway-server.js",
+    "test:build": "npm run build && npm run test:railway",
+    "test:docker": "docker build -f Dockerfile.railway -t ghibli-test . && echo 'Docker build successful!'",
+    "test:health": "curl http://localhost:3000/health || echo 'Server not running'"
+  }
+}
